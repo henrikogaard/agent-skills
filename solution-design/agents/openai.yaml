@@ -1,0 +1,7 @@
+interface:
+  display_name: "Solution Design"
+  short_description: "Compare approaches and choose a practical architecture before implementation"
+  default_prompt: "Use $solution-design to compare implementation approaches, document tradeoffs, select a design, and outline components, data flow, rollout, and verification before coding."
+
+policy:
+  allow_implicit_invocation: true

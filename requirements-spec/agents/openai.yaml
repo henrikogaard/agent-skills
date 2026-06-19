@@ -1,0 +1,7 @@
+interface:
+  display_name: "Requirements Spec"
+  short_description: "Convert needs into acceptance criteria, scope, edge cases, and done definition"
+  default_prompt: "Use $requirements-spec to turn a clarified need, issue, or product request into testable requirements, acceptance criteria, non-goals, edge cases, and done definition."
+
+policy:
+  allow_implicit_invocation: true

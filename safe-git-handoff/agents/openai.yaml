@@ -1,0 +1,7 @@
+interface:
+  display_name: "Safe Git Handoff"
+  short_description: "Protect unrelated work and stage/commit only intentional changes"
+  default_prompt: "Use $safe-git-handoff before commits, pushes, or local worktree handoffs."
+
+policy:
+  allow_implicit_invocation: true

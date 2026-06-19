@@ -1,0 +1,7 @@
+interface:
+  display_name: "PR Description"
+  short_description: "Create reviewer-friendly PR bodies"
+  default_prompt: "Use $pr-description to draft a PR body with context, changes, tests, risks, screenshots, and reviewer guidance."
+
+policy:
+  allow_implicit_invocation: true

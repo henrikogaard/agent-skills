@@ -1,0 +1,7 @@
+interface:
+  display_name: "Summary Router"
+  short_description: "Route summary and presentation requests to Summary Tables"
+  default_prompt: "Use $summary-router for requests to summarize, present, compare, or report decision-relevant information; then format the result with $summary-tables."
+
+policy:
+  allow_implicit_invocation: true

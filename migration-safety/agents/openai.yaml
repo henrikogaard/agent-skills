@@ -1,0 +1,7 @@
+interface:
+  display_name: "Migration Safety"
+  short_description: "Review schema changes for rollout risk"
+  default_prompt: "Use $migration-safety to review database migrations, schema changes, compatibility, and rollback risk."
+
+policy:
+  allow_implicit_invocation: true

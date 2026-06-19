@@ -1,0 +1,7 @@
+interface:
+  display_name: "Debugging Process"
+  short_description: "Reproduce, isolate, diagnose, fix, and verify bugs systematically"
+  default_prompt: "Use $debugging-process to investigate bugs, failing tests, broken builds, CI failures, regressions, flaky behavior, confusing errors, or unexpected app behavior with reproduction, hypotheses, root cause, and verification."
+
+policy:
+  allow_implicit_invocation: true

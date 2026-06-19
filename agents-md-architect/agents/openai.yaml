@@ -1,0 +1,7 @@
+interface:
+  display_name: "AGENTS.md Architect"
+  short_description: "Layer global and project agent instructions cleanly"
+  default_prompt: "Use $agents-md-architect to audit or design global and project AGENTS.md instructions."
+
+policy:
+  allow_implicit_invocation: true

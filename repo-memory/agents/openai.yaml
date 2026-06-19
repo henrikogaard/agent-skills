@@ -1,0 +1,7 @@
+interface:
+  display_name: "Repo Memory"
+  short_description: "Capture project conventions and gotchas"
+  default_prompt: "Use $repo-memory to maintain repo-specific conventions, commands, architecture notes, and recurring gotchas."
+
+policy:
+  allow_implicit_invocation: true

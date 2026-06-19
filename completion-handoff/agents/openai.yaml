@@ -1,0 +1,7 @@
+interface:
+  display_name: "Completion Handoff"
+  short_description: "Complete work summaries with evidence"
+  default_prompt: "Use $completion-handoff to report shipped work, verification, commits, leftovers, and next steps."
+
+policy:
+  allow_implicit_invocation: true

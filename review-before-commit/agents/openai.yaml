@@ -1,0 +1,7 @@
+interface:
+  display_name: "Review Before Commit"
+  short_description: "Final bug and risk review before commit"
+  default_prompt: "Use $review-before-commit to inspect staged changes for bugs, regressions, test gaps, and risky omissions before committing."
+
+policy:
+  allow_implicit_invocation: true

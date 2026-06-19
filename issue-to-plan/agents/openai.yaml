@@ -1,0 +1,7 @@
+interface:
+  display_name: "Issue To Plan"
+  short_description: "Turn issues into executable plans"
+  default_prompt: "Use $issue-to-plan to convert this issue into acceptance criteria, risks, verification targets, and a sequenced plan."
+
+policy:
+  allow_implicit_invocation: true

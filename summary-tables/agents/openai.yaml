@@ -1,0 +1,7 @@
+interface:
+  display_name: "Summary Tables"
+  short_description: "Evidence-backed tables for summaries and status"
+  default_prompt: "Use $summary-tables to summarize, report, compare, or present plan progress, acceptance criteria, verification, status, and next steps."
+
+policy:
+  allow_implicit_invocation: true
