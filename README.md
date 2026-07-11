@@ -14,6 +14,7 @@ skill's `SKILL.md`.
 | [`change-surface-map`](change-surface-map/SKILL.md) | Planning | Mapping affected files, APIs, data contracts, tests, docs, build scripts, and hidden cross-module coupling before implementation. |
 | [`completion-handoff`](completion-handoff/SKILL.md) | Handoff | Reporting shipped work, verification, commit/push/PR state, leftovers, risks, and exact next steps. |
 | [`debugging-process`](debugging-process/SKILL.md) | Debugging | Reproducing, isolating, diagnosing, fixing, and verifying bugs, test failures, regressions, and broken builds. |
+| [`delegated-subagents`](delegated-subagents/SKILL.md) | Delegation | Delegating bounded repository work to cost-aware OpenCode or Devin CLI workers while Codex remains the supervising coordinator. |
 | [`design-system-guard`](design-system-guard/SKILL.md) | Frontend | Reviewing UI changes for tokens, component consistency, i18n, responsiveness, accessibility, and visual polish. |
 | [`docs-sweep`](docs-sweep/SKILL.md) | Documentation | Deciding and updating the right README, worklog, changelog, ADR, runbook, QA, or security docs after repository changes. |
 | [`github-project-hygiene`](github-project-hygiene/SKILL.md) | GitHub | Reconciling GitHub issues, labels, comments, project-board Status fields, QA state, stale notes, and closeout readiness. |

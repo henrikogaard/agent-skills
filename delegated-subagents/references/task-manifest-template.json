@@ -1,0 +1,22 @@
+{
+  "issue_url": "https://github.com/owner/repo/issues/123",
+  "goal": "One precise, bounded objective",
+  "acceptance_criteria": [
+    "First observable criterion",
+    "Second observable criterion"
+  ],
+  "allowed_paths": [
+    "src/feature/",
+    "tests/feature/"
+  ],
+  "forbidden_actions": [
+    "push",
+    "create-pr",
+    "close-issue",
+    "deploy"
+  ],
+  "verification": [
+    "focused test command",
+    "typecheck command"
+  ]
+}

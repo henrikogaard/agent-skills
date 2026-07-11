@@ -1,0 +1,7 @@
+interface:
+  display_name: "Delegated Subagents"
+  short_description: "Supervise cheaper CLI coding subagents"
+  default_prompt: "Use $delegated-subagents to delegate bounded repository work while this Codex task coordinates, reviews, and reports status."
+
+policy:
+  allow_implicit_invocation: true
