@@ -11,6 +11,25 @@ RESOLVER = SKILL_DIR / "scripts" / "resolve-model.sh"
 
 
 class ResolverTests(unittest.TestCase):
+    def test_local_task_type_is_rejected(self):
+        with tempfile.TemporaryDirectory() as temp:
+            fake = Path(temp) / "opencode"
+            fake.write_text("#!/usr/bin/env bash\n", encoding="utf-8")
+            fake.chmod(fake.stat().st_mode | stat.S_IXUSR)
+            env = os.environ.copy()
+            env["PATH"] = f"{temp}{os.pathsep}{env['PATH']}"
+
+            result = subprocess.run(
+                [str(RESOLVER), "--task", "local"],
+                text=True,
+                capture_output=True,
+                env=env,
+                timeout=10,
+            )
+
+            self.assertEqual(result.returncode, 2)
+            self.assertIn("unknown task type: local", result.stderr)
+
     def test_code_small_prefers_qwen_before_mistral(self):
         with tempfile.TemporaryDirectory() as temp:
             fake = Path(temp) / "opencode"

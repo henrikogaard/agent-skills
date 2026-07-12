@@ -15,7 +15,7 @@ while [[ $# -gt 0 ]]; do
     --all) PRINT_ALL=1; shift ;;
     -h|--help)
       cat <<'USAGE'
-Usage: resolve-model.sh [--task scout|bulk|code-small|debug|review|closure-validation|local] [--hint provider/model] [--policy default|only-free|free-first|allow-limited|airouter|mistral] [--all]
+Usage: resolve-model.sh [--task scout|bulk|code-small|debug|review|closure-validation] [--hint provider/model] [--policy default|only-free|free-first|allow-limited|airouter|mistral] [--all]
 USAGE
       exit 0
       ;;
@@ -98,14 +98,6 @@ case "$TASK_TYPE" in
   closure-validation)
     default_chain=("mistral/mistral-medium-latest" "airouter/Qwen3.6" "mistral/codestral-latest" "airouter/DeepSeek-V4-Flash" "opencode/nemotron-3-ultra-free")
     limited_chain=("opencode-go/qwen3.7-max" "opencode-go/qwen3.7-plus" "opencode-go/deepseek-v4-pro")
-    ;;
-  local)
-    default_chain=(
-      "omlx/Qwen3-Coder-30B-A3B-Instruct-MLX-4bit"
-      "omlx/Devstral-Small-2-24B-Instruct-2512-4bit"
-      "omlx/DeepSeek-Coder-V2-Lite-Instruct-4bit-mlx"
-    )
-    limited_chain=()
     ;;
   *)
     echo "unknown task type: $TASK_TYPE" >&2

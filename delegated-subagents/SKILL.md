@@ -51,7 +51,7 @@ and only when the user has authorized the specific external action.
 
 1. Define the task and acceptance criteria.
 2. Select a task type: `scout`, `bulk`, `code-small`, `debug`, `review`,
-   `closure-validation`, `local`, or `long-autonomous`.
+   `closure-validation`, or `long-autonomous`.
 3. Read `references/model-matrix.md` and honor the user's model preference first.
 4. Create a manifest from `references/task-manifest-template.json` for editing,
    issue, PR-readiness, or closure-validation work.

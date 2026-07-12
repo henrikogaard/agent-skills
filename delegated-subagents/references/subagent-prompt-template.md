@@ -6,7 +6,7 @@ You communicate only through the structured report to the supervising Codex task
 Do not ask the user for approvals, clarification, status, or follow-up.
 If a decision is required, report STATUS: blocked and state the exact decision needed.
 
-Task type: <scout|bulk|code-small|debug|review|closure-validation|local|long-autonomous>
+Task type: <scout|bulk|code-small|debug|review|closure-validation|long-autonomous>
 Repo: <absolute repo path>
 Branch/worktree: <branch or worktree>
 Model: <provider/model>

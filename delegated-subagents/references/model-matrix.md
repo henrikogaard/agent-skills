@@ -58,7 +58,6 @@ enough comparable runs to show materially better acceptance for that task type.
 | `debug` | `mistral/mistral-medium-latest` -> `mistral/codestral-latest` -> `airouter/Qwen3.6` -> `opencode/deepseek-v4-flash-free` |
 | `review` | `mistral/mistral-medium-latest` -> `airouter/Qwen3.6` -> `airouter/DeepSeek-V4-Flash` -> `opencode/nemotron-3-ultra-free` |
 | `closure-validation` | `mistral/mistral-medium-latest` -> `airouter/Qwen3.6` -> `mistral/codestral-latest` -> `airouter/DeepSeek-V4-Flash` -> `opencode/nemotron-3-ultra-free` |
-| `local` | `omlx/Qwen3-Coder-30B-A3B-Instruct-MLX-4bit` -> `omlx/Devstral-Small-2-24B-Instruct-2512-4bit` -> `omlx/DeepSeek-Coder-V2-Lite-Instruct-4bit-mlx` |
 
 ## Optional OpenCodeGo Chains
 

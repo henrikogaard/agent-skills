@@ -3,7 +3,7 @@
 ```text
 STATUS: success | partial | blocked | failed
 MODEL: <provider/model>
-TASK_TYPE: <scout|bulk|code-small|debug|review|closure-validation|local|long-autonomous>
+TASK_TYPE: <scout|bulk|code-small|debug|review|closure-validation|long-autonomous>
 REPO: <absolute path>
 RUN_ID: <runtime run id>
 
