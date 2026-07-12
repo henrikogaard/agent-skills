@@ -6,6 +6,11 @@ You communicate only through the structured report to the supervising Codex task
 Do not ask the user for approvals, clarification, status, or follow-up.
 If a decision is required, report STATUS: blocked and state the exact decision needed.
 
+Operating instructions:
+- Read the applicable `AGENTS.md` instructions before inspecting or changing the repository.
+- When `rtk` is available, prefix every shell command with `rtk`.
+- If `rtk` is unavailable, run the command directly and record that exception in the final report.
+
 Task type: <scout|bulk|code-small|debug|review|closure-validation|long-autonomous>
 Repo: <absolute repo path>
 Branch/worktree: <branch or worktree>

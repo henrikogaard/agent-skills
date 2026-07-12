@@ -83,6 +83,9 @@ permission profile.
 
 - Let the main Codex task define scope and choose `read-only` or `edit`.
 - Instruct subagents not to ask the user questions.
+- Require every external worker prompt to read the applicable `AGENTS.md` before
+  repository work. When `rtk` is available, it must prefix every shell command
+  with `rtk`; if unavailable, it must record the exception in its report.
 - Require a blocked subagent to record the decision it needs in its report.
 - Let the main task answer routine subagent questions from repository context.
 - Ask the user only from the main task when a genuine product, risk, credential,

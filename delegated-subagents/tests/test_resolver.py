@@ -10,9 +10,16 @@ SKILL_DIR = Path(__file__).resolve().parents[1]
 RESOLVER = SKILL_DIR / "scripts" / "resolve-model.sh"
 SKILL = SKILL_DIR / "SKILL.md"
 DEVIN_SPAWN = SKILL_DIR / "scripts" / "spawn-devin.sh"
+PROMPT_TEMPLATE = SKILL_DIR / "references" / "subagent-prompt-template.md"
 
 
 class ResolverTests(unittest.TestCase):
+    def test_worker_prompt_requires_rtk_when_available(self):
+        text = PROMPT_TEMPLATE.read_text(encoding="utf-8")
+
+        self.assertIn("Read the applicable `AGENTS.md` instructions", text)
+        self.assertIn("When `rtk` is available, prefix every shell command with `rtk`", text)
+
     def test_skill_treats_explicit_swe_request_as_delegation_opt_in(self):
         text = SKILL.read_text(encoding="utf-8")
 
