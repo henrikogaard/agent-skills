@@ -203,6 +203,44 @@ print({report!r})
             self.assertEqual(len(state["attempts"]), 1)
             self.assertEqual(state["attempts"][0]["state"], "provider-unavailable")
 
+    def test_opencode_rejects_explicit_omlx_models(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            fake_bin = root / "bin"
+            fake_bin.mkdir()
+            write_executable(fake_bin / "opencode", "#!/usr/bin/env bash\nexit 0\n")
+            prompt = root / "prompt.txt"
+            prompt.write_text("inspect", encoding="utf-8")
+            env = os.environ.copy()
+            env["PATH"] = f"{fake_bin}{os.pathsep}{env['PATH']}"
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(DELEGATE),
+                    "run",
+                    "--tool",
+                    "opencode",
+                    "--prompt-file",
+                    str(prompt),
+                    "--workdir",
+                    str(root),
+                    "--models",
+                    "omlx/Qwen3-Coder-30B-A3B-Instruct-MLX-4bit",
+                    "--state-root",
+                    str(root / "state"),
+                    "--isolation",
+                    "none",
+                ],
+                text=True,
+                capture_output=True,
+                env=env,
+                timeout=10,
+            )
+
+            self.assertEqual(result.returncode, 2)
+            self.assertIn("local omlx models are disabled", result.stderr)
+
     def test_crashed_process_is_replaced(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

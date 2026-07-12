@@ -167,6 +167,8 @@ task-specific tail.
   worker rediscover the whole repository.
 - The OpenCode worker profile disables unrelated MCP tools by default. Enable
   them only through an explicit, task-specific configuration override.
+- Local `omlx/*` models are disabled for delegated work, including explicit
+  model hints.
 - Keep the worker model input limit below the provider's fair-use threshold and
   retain automatic compaction/pruning. Verify the local limit before changing it.
 

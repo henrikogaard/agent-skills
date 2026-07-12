@@ -565,6 +565,9 @@ def run_command(args: argparse.Namespace) -> int:
     if not models:
         print("at least one explicit model is required", file=sys.stderr)
         return 2
+    if args.tool == "opencode" and any(model.startswith("omlx/") for model in models):
+        print("local omlx models are disabled for delegated subagents", file=sys.stderr)
+        return 2
     models = rank_models_by_history(
         models,
         args.state_root.parent / "model-history.jsonl",
