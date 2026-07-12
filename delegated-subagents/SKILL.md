@@ -38,6 +38,43 @@ report.
 Do not treat a request for the main Codex model as external-worker authorization.
 Generic requests for subagents still use native GPT/Codex management.
 
+## Complexity Gate
+
+Complexity overrides cost. Keep work in the main Codex thread, or use a Native
+Codex GPT subagent, when it has ambiguous product decisions, architecture or
+cross-module design, security/privacy/release impact, a broad refactor, or
+several tightly coupled implementation areas. The main thread owns the plan,
+integration, and final verification.
+
+External workers are eligible only when the goal, allowed paths, acceptance
+criteria, and verification are clear and the work can stand alone. Do not split
+a complex task into cheap workers merely to reduce cost.
+
+| Work shape | Owner |
+|---|---|
+| Architecture, cross-cutting change, high-risk decision, or unclear scope | Main Codex thread |
+| Independent but reasoning-intensive complex slice | Native Codex GPT subagent |
+| Bounded implementation with a manifest and focused tests | External worker selected below |
+| Inventory, search, docs sweep, or simple investigation | Low-cost external worker |
+
+## Weighted External Model Matrix
+
+Apply this table only after the complexity gate. Weights are policy priorities
+from 1 (low) to 5 (high), not benchmark claims. Choose the highest task-fit
+option that stays within the task's cost and risk budget.
+
+| Model route | Coding fit | Investigation fit | Cost priority | Use for |
+|---|---:|---:|---:|---|
+| Devin/SWE 1.7 | 5 | 3 | 5 | Preferred free worker for bounded implementation, debugging, and focused multi-file edits with a manifest. |
+| OpenCode free | 2 | 5 | 5 | Scouts, bulk inventory, docs, repository search, and simple checks. |
+| aiRouter Qwen | 3 | 3 | 2 | Short bounded code or analysis when free workers are unsuitable; respect the fair-use context limit. |
+| Mistral Medium/Codestral | 4 | 3 | 1 | Explicitly requested work or a justified stronger external pass, never as a substitute for complex Codex-owned work. |
+| OpenCodeGo | 3 | 3 | 1 | Only when the user explicitly permits subscription-limited use. |
+
+For a bounded coding task, prefer `scripts/spawn-devin.sh --model swe-1.7`.
+Use `scripts/spawn-opencode.sh` for the OpenCode rows; its cost-first fallback
+chains apply only after OpenCode is the selected route.
+
 ## Non-Interactive Rule
 
 Do not send the user to a subagent for approvals, clarifications, status, or
@@ -143,15 +180,9 @@ while allowing non-interactive CLI permissions.
 
 ## Model And Cost Policy
 
-Use already-paid capacity before scarce GPT/Codex coordination tokens:
-
-1. OpenCode free models for scouts, bulk work, summaries, and light debugging.
-2. aiRouter for broad free/unlimited delegated work.
-3. Mistral Medium/Codestral for stronger coding, debugging, and review.
-4. Devin/SWE 1.7 for longer bounded work.
-5. OpenCodeGo only when the user permits limited subscription usage or the policy
-   explicitly allows it.
-6. Preserve the main GPT/Codex task for coordination and final judgment.
+Use the complexity gate and weighted matrix above before task-type defaults.
+Preserve the main GPT/Codex task for coordination and final judgment; use the
+scorecard only as a tie-breaker between models in the same matrix tier.
 
 Refresh the live snapshot with `scripts/refresh-models.sh` and inspect measured
 outcomes with `scripts/model-scorecard.sh`. Update
@@ -213,10 +244,10 @@ approval for PR, merge, release, issue closure, or project completion.
 
 | Situation | Default delegation |
 |---|---|
-| Small issue or bug | One scout/debug worker; main task implements or reviews. |
-| Medium issue | One implementation worker, then one independent review worker. |
-| Large issue with independent areas | Two or three workers with non-overlapping manifests. |
-| Many issues/branches/repos | Multiple bulk scouts, bounded by machine limits. |
+| Small investigation | One OpenCode-free scout or bulk worker. |
+| Bounded implementation | One Devin/SWE 1.7 worker with a manifest, then main-task review. |
+| Complex or cross-cutting issue | Main Codex thread or a Native Codex GPT subagent. |
+| Many independent investigations | Multiple low-cost scouts, bounded by machine limits. |
 | Ready-to-close issue | One closure-validation worker using the checklist. |
 | Security/privacy/release work | Workers investigate; main task decides and edits conservatively. |
 

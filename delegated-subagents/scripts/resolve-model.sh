@@ -84,19 +84,19 @@ case "$TASK_TYPE" in
     limited_chain=("opencode-go/deepseek-v4-flash")
     ;;
   code-small)
-    default_chain=("airouter/Qwen3.6" "opencode/north-mini-code-free" "${mistral_chain[@]}" "airouter/DeepSeek-V4-Flash")
+    default_chain=("opencode/north-mini-code-free" "airouter/Qwen3.6" "airouter/DeepSeek-V4-Flash")
     limited_chain=("opencode-go/kimi-k2.7-code" "opencode-go/qwen3.7-plus" "opencode-go/deepseek-v4-flash")
     ;;
   debug)
-    default_chain=("${mistral_chain[@]}" "airouter/Qwen3.6" "opencode/deepseek-v4-flash-free")
+    default_chain=("opencode/north-mini-code-free" "airouter/Qwen3.6" "opencode/deepseek-v4-flash-free")
     limited_chain=("opencode-go/qwen3.7-plus" "opencode-go/deepseek-v4-pro" "opencode-go/kimi-k2.7-code")
     ;;
   review)
-    default_chain=("mistral/mistral-medium-latest" "airouter/Qwen3.6" "airouter/DeepSeek-V4-Flash" "opencode/nemotron-3-ultra-free")
+    default_chain=("opencode/nemotron-3-ultra-free" "airouter/Qwen3.6" "airouter/DeepSeek-V4-Flash")
     limited_chain=("opencode-go/qwen3.7-max" "opencode-go/qwen3.7-plus")
     ;;
   closure-validation)
-    default_chain=("mistral/mistral-medium-latest" "airouter/Qwen3.6" "mistral/codestral-latest" "airouter/DeepSeek-V4-Flash" "opencode/nemotron-3-ultra-free")
+    default_chain=("opencode/nemotron-3-ultra-free" "airouter/Qwen3.6" "airouter/DeepSeek-V4-Flash")
     limited_chain=("opencode-go/qwen3.7-max" "opencode-go/qwen3.7-plus" "opencode-go/deepseek-v4-pro")
     ;;
   *)

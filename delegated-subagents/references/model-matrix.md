@@ -27,9 +27,9 @@ Honor explicit hints before default routing:
 | Bucket | Cost policy | Default use |
 |---|---|---|
 | OpenCode free | Free; use at will | Scouting, inventory, docs, simple investigation. |
-| aiRouter | Account-dependent; verify allowance | General fallback and broad delegated work. |
-| Mistral Medium | Account-dependent; verify allowance | Stronger coding, debugging, review. |
-| Devin/SWE 1.7 | Account-dependent; verify allowance | Longer autonomous bounded work. |
+| aiRouter | Fair-use constrained; retain the context cap | Short bounded fallback after free models. |
+| Mistral Medium | Account-dependent; use only when explicitly requested or justified | Stronger external pass, not a default complexity substitute. |
+| Devin/SWE 1.7 | Free for this account | Preferred bounded implementation, debugging, and focused multi-file edit worker. |
 | OpenCodeGo | Subscription-limited | Use when allowed or when free/aiRouter/Mistral/Devin are insufficient. |
 | GPT/Codex main | Scarce | Coordination, final review, verification, PR/release decisions. |
 
@@ -55,10 +55,10 @@ enough comparable runs to show materially better acceptance for that task type.
 |---|---|
 | `scout` | `opencode/deepseek-v4-flash-free` -> `opencode/north-mini-code-free` -> `opencode/mimo-v2.5-free` -> `airouter/DeepSeek-V4-Flash` -> `airouter/Qwen3.6` |
 | `bulk` | `opencode/deepseek-v4-flash-free` -> `opencode/mimo-v2.5-free` -> `airouter/DeepSeek-V4-Flash` |
-| `code-small` | `airouter/Qwen3.6` -> `opencode/north-mini-code-free` -> `mistral/mistral-medium-latest` -> `mistral/codestral-latest` -> `airouter/DeepSeek-V4-Flash` |
-| `debug` | `mistral/mistral-medium-latest` -> `mistral/codestral-latest` -> `airouter/Qwen3.6` -> `opencode/deepseek-v4-flash-free` |
-| `review` | `mistral/mistral-medium-latest` -> `airouter/Qwen3.6` -> `airouter/DeepSeek-V4-Flash` -> `opencode/nemotron-3-ultra-free` |
-| `closure-validation` | `mistral/mistral-medium-latest` -> `airouter/Qwen3.6` -> `mistral/codestral-latest` -> `airouter/DeepSeek-V4-Flash` -> `opencode/nemotron-3-ultra-free` |
+| `code-small` | `opencode/north-mini-code-free` -> `airouter/Qwen3.6` -> `airouter/DeepSeek-V4-Flash` |
+| `debug` | `opencode/north-mini-code-free` -> `airouter/Qwen3.6` -> `opencode/deepseek-v4-flash-free` |
+| `review` | `opencode/nemotron-3-ultra-free` -> `airouter/Qwen3.6` -> `airouter/DeepSeek-V4-Flash` |
+| `closure-validation` | `opencode/nemotron-3-ultra-free` -> `airouter/Qwen3.6` -> `airouter/DeepSeek-V4-Flash` |
 
 ## Optional OpenCodeGo Chains
 
@@ -73,7 +73,7 @@ Only use when the user explicitly allows OpenCodeGo or when `SUBAGENT_POLICY=all
 
 ## Devin/SWE 1.7
 
-Use Devin/SWE 1.7 for `long-autonomous` work only when the account policy allows it, the task has clear acceptance criteria, and it is safe to run autonomously. Still keep the main Codex thread as coordinator and final reviewer.
+Use Devin/SWE 1.7 for bounded implementation or `long-autonomous` work only when the task has clear acceptance criteria, a narrow manifest, and safe autonomous scope. Still keep the main Codex thread as coordinator and final reviewer.
 
 Suggested Devin model policy:
 

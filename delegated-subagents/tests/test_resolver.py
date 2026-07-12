@@ -19,6 +19,14 @@ class ResolverTests(unittest.TestCase):
         self.assertIn("launch subagents with SWE 1.7", text)
         self.assertIn("scripts/spawn-devin.sh", text)
 
+    def test_skill_has_complexity_gate_and_weighted_model_matrix(self):
+        text = SKILL.read_text(encoding="utf-8")
+
+        self.assertIn("## Complexity Gate", text)
+        self.assertIn("Native Codex GPT subagent", text)
+        self.assertIn("## Weighted External Model Matrix", text)
+        self.assertIn("Devin/SWE 1.7", text)
+
     def test_devin_runner_defaults_to_one_attempt(self):
         text = DEVIN_SPAWN.read_text(encoding="utf-8")
 
@@ -43,13 +51,13 @@ class ResolverTests(unittest.TestCase):
             self.assertEqual(result.returncode, 2)
             self.assertIn("unknown task type: local", result.stderr)
 
-    def test_code_small_prefers_qwen_before_mistral(self):
+    def test_code_small_prefers_free_model_before_paid_fallbacks(self):
         with tempfile.TemporaryDirectory() as temp:
             fake = Path(temp) / "opencode"
             fake.write_text(
                 "#!/usr/bin/env bash\n"
                 "if [[ \"$1\" == models ]]; then\n"
-                "  printf '%s\\n' airouter/Qwen3.6 mistral/mistral-medium-latest\n"
+                "  printf '%s\\n' opencode/north-mini-code-free airouter/Qwen3.6 mistral/mistral-medium-latest\n"
                 "fi\n"
             )
             fake.chmod(fake.stat().st_mode | stat.S_IXUSR)
@@ -65,7 +73,41 @@ class ResolverTests(unittest.TestCase):
             )
 
             self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertEqual(result.stdout.strip(), "airouter/Qwen3.6")
+            self.assertEqual(result.stdout.strip(), "opencode/north-mini-code-free")
+
+    def test_mistral_requires_an_explicit_policy(self):
+        with tempfile.TemporaryDirectory() as temp:
+            fake = Path(temp) / "opencode"
+            fake.write_text(
+                "#!/usr/bin/env bash\n"
+                "if [[ \"$1\" == models ]]; then\n"
+                "  printf '%s\\n' opencode/north-mini-code-free mistral/mistral-medium-latest\n"
+                "fi\n",
+                encoding="utf-8",
+            )
+            fake.chmod(fake.stat().st_mode | stat.S_IXUSR)
+            env = os.environ.copy()
+            env["PATH"] = f"{temp}{os.pathsep}{env['PATH']}"
+
+            default_result = subprocess.run(
+                [str(RESOLVER), "--task", "debug", "--all"],
+                text=True,
+                capture_output=True,
+                env=env,
+                timeout=10,
+            )
+            mistral_result = subprocess.run(
+                [str(RESOLVER), "--task", "debug", "--policy", "mistral"],
+                text=True,
+                capture_output=True,
+                env=env,
+                timeout=10,
+            )
+
+            self.assertEqual(default_result.returncode, 0, default_result.stderr)
+            self.assertNotIn("mistral/mistral-medium-latest", default_result.stdout)
+            self.assertEqual(mistral_result.returncode, 0, mistral_result.stderr)
+            self.assertEqual(mistral_result.stdout.strip(), "mistral/mistral-medium-latest")
 
     def test_explicit_hint_is_not_duplicated_in_fallback_chain(self):
         with tempfile.TemporaryDirectory() as temp:
