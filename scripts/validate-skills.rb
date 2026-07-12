@@ -56,7 +56,8 @@ skills.each do |skill|
   errors << "#{skill}: missing interface.display_name" if openai.dig("interface", "display_name").to_s.strip.empty?
   errors << "#{skill}: missing interface.short_description" if openai.dig("interface", "short_description").to_s.strip.empty?
   errors << "#{skill}: missing interface.default_prompt" if openai.dig("interface", "default_prompt").to_s.strip.empty?
-  errors << "#{skill}: policy.allow_implicit_invocation should be true" unless openai.dig("policy", "allow_implicit_invocation") == true
+  implicit_invocation = openai.dig("policy", "allow_implicit_invocation")
+  errors << "#{skill}: policy.allow_implicit_invocation must be true or false" unless [true, false].include?(implicit_invocation)
 end
 
 links = readme.scan(/\]\(([^)]+)\)/).flatten.reject { |link| link.start_with?("http") }

@@ -26,6 +26,11 @@ Scope:
 - Manifest allowed paths: <exact path prefixes or none>
 - Do not touch: <forbidden files/areas>
 
+Context budget:
+- Read only the scoped paths and the smallest relevant excerpts.
+- Do not inspect lockfiles, generated output, dependency trees, or full logs unless required by an acceptance criterion.
+- Return concise evidence with file paths and line references so later workers can reuse it.
+
 Forbidden actions:
 - Do not push.
 - Do not create PRs.

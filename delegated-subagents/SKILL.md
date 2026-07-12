@@ -1,6 +1,6 @@
 ---
 name: delegated-subagents
-description: Delegate bounded repository work to cheaper non-interactive OpenCode or Devin CLI agents while Codex/GPT remains the supervising coordinator. Use for coding, debugging, issue triage, branch inventory, test investigation, docs sweeps, PR readiness, acceptance-criteria validation, or broad repo analysis needing cost-aware model routing, isolated worktrees, status reporting, resource limits, fallback, stuck-agent recovery, independent review, and closure evidence.
+description: Use only when the user explicitly requests delegated subagents, `$delegated-subagents`, or external OpenCode or Devin CLI workers for bounded repository work. Do not use for ordinary subagent delegation.
 ---
 
 # Delegated Subagents
@@ -8,6 +8,18 @@ description: Delegate bounded repository work to cheaper non-interactive OpenCod
 Keep the current Codex task as coordinator, reviewer, and sole user-facing
 interface. Use external CLI agents as bounded workers, never as independent
 owners of the user's request.
+
+## Activation
+
+This skill is opt-in. Invoke it only when the user explicitly says `delegated
+subagents`, `$delegated-subagents`, or clearly requests external OpenCode or
+Devin CLI workers.
+
+Do not invoke it merely because a task involves coding, debugging, review,
+triage, research, documentation, or parallel work. When this skill has not
+been explicitly requested, use the default native GPT/Codex subagent management
+when subagents are otherwise appropriate and authorized by the active task
+instructions. Do not silently route work to external or cheaper models.
 
 ## Non-Interactive Rule
 
@@ -136,8 +148,27 @@ Do not fallback for auth failures, permission failures, dirty/conflicted state,
 ambiguous scope, broken code/tests, malformed reports, failed acceptance
 criteria, poor patches, or policy violations. Return those to the main task.
 
-Bound attempts with `SUBAGENT_MAX_ATTEMPTS`. Record every failed attempt and
-replacement. Never retry forever or retry the same model twice.
+Default to one external attempt and one active external worker. A failed,
+cancelled, or unsuitable worker returns control to the main task; additional
+external attempts require an explicit `--max-attempts` override. Record every
+attempt and replacement. Never retry forever or retry the same model twice.
+
+## Context And Cache Discipline
+
+Treat provider prompt caching as opportunistic, not a correctness or cost
+guarantee. Keep each worker's task narrow, use one pinned provider/model for a
+batch when cache reuse matters, and keep stable instructions before the
+task-specific tail.
+
+- Inspect only files, paths, and commands named in the prompt or manifest.
+- Do not read lockfiles, generated output, dependency trees, or full test logs
+  unless they are directly needed for the acceptance criteria.
+- Reuse a concise scout report or file/line inventory instead of making a new
+  worker rediscover the whole repository.
+- The OpenCode worker profile disables unrelated MCP tools by default. Enable
+  them only through an explicit, task-specific configuration override.
+- Keep the worker model input limit below the provider's fair-use threshold and
+  retain automatic compaction/pruning. Verify the local limit before changing it.
 
 ## Status And Decisions
 

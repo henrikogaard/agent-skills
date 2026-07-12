@@ -54,7 +54,7 @@ enough comparable runs to show materially better acceptance for that task type.
 |---|---|
 | `scout` | `opencode/deepseek-v4-flash-free` -> `opencode/north-mini-code-free` -> `opencode/mimo-v2.5-free` -> `airouter/DeepSeek-V4-Flash` -> `airouter/Qwen3.6` |
 | `bulk` | `opencode/deepseek-v4-flash-free` -> `opencode/mimo-v2.5-free` -> `airouter/DeepSeek-V4-Flash` |
-| `code-small` | `mistral/mistral-medium-latest` -> `mistral/codestral-latest` -> `airouter/Qwen3.6` -> `airouter/DeepSeek-V4-Flash` -> `opencode/north-mini-code-free` |
+| `code-small` | `airouter/Qwen3.6` -> `opencode/north-mini-code-free` -> `mistral/mistral-medium-latest` -> `mistral/codestral-latest` -> `airouter/DeepSeek-V4-Flash` |
 | `debug` | `mistral/mistral-medium-latest` -> `mistral/codestral-latest` -> `airouter/Qwen3.6` -> `opencode/deepseek-v4-flash-free` |
 | `review` | `mistral/mistral-medium-latest` -> `airouter/Qwen3.6` -> `airouter/DeepSeek-V4-Flash` -> `opencode/nemotron-3-ultra-free` |
 | `closure-validation` | `mistral/mistral-medium-latest` -> `airouter/Qwen3.6` -> `mistral/codestral-latest` -> `airouter/DeepSeek-V4-Flash` -> `opencode/nemotron-3-ultra-free` |

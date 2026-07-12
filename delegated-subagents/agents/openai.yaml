@@ -1,7 +1,7 @@
 interface:
   display_name: "Delegated Subagents"
-  short_description: "Supervise cheaper CLI coding subagents"
-  default_prompt: "Use $delegated-subagents to delegate bounded repository work while this Codex task coordinates, reviews, and reports status."
+  short_description: "Opt-in supervision of external CLI workers"
+  default_prompt: "I explicitly opt in to $delegated-subagents for bounded repository work. Use external OpenCode or Devin CLI workers while this Codex task coordinates, reviews, and reports status."
 
 policy:
-  allow_implicit_invocation: true
+  allow_implicit_invocation: false

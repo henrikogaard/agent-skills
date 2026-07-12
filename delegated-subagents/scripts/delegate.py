@@ -140,6 +140,26 @@ def child_setup(nice_value: int) -> None:
             pass
 
 
+def worker_environment(args: argparse.Namespace) -> dict[str, str]:
+    environment = os.environ.copy()
+    if args.tool == "opencode":
+        config_content = environment.get("OPENCODE_CONFIG_CONTENT", "{}")
+        try:
+            config = json.loads(config_content)
+        except json.JSONDecodeError:
+            config = {}
+        if not isinstance(config, dict):
+            config = {}
+        tools = config.get("tools")
+        if not isinstance(tools, dict):
+            tools = {}
+        tools.setdefault("infomaniak_*", False)
+        tools.setdefault("cua-driver_*", False)
+        config["tools"] = tools
+        environment["OPENCODE_CONFIG_CONTENT"] = json.dumps(config, sort_keys=True)
+    return environment
+
+
 def build_command(args: argparse.Namespace, model: str, prompt_copy: Path, run_dir: Path) -> list[str]:
     instruction = "Read the attached task instructions and return the required structured report. Do not ask the user questions."
     if args.tool == "opencode":
@@ -654,6 +674,7 @@ def run_command(args: argparse.Namespace) -> int:
             current_process = subprocess.Popen(
                 command,
                 cwd=args.workdir,
+                env=worker_environment(args),
                 stdin=subprocess.DEVNULL,
                 stdout=log_handle,
                 stderr=subprocess.STDOUT,
@@ -823,10 +844,10 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--timeout", type=float, default=float(os.environ.get("SUBAGENT_TIMEOUT_SECONDS", "1800")))
     run.add_argument("--idle", type=float, default=float(os.environ.get("SUBAGENT_IDLE_SECONDS", "300")))
     run.add_argument("--poll", type=float, default=2.0)
-    run.add_argument("--max-attempts", type=int, default=int(os.environ.get("SUBAGENT_MAX_ATTEMPTS", "3")))
+    run.add_argument("--max-attempts", type=int, default=int(os.environ.get("SUBAGENT_MAX_ATTEMPTS", "1")))
     run.add_argument("--max-rss-mb", type=float, default=float(os.environ.get("SUBAGENT_MAX_RSS_MB", "4096")))
-    run.add_argument("--max-global", type=int, default=int(os.environ.get("SUBAGENT_MAX_GLOBAL", "3")))
-    run.add_argument("--max-per-repo", type=int, default=int(os.environ.get("SUBAGENT_MAX_PER_REPO", "2")))
+    run.add_argument("--max-global", type=int, default=int(os.environ.get("SUBAGENT_MAX_GLOBAL", "1")))
+    run.add_argument("--max-per-repo", type=int, default=int(os.environ.get("SUBAGENT_MAX_PER_REPO", "1")))
     run.add_argument("--nice", type=int, default=int(os.environ.get("SUBAGENT_NICE", "5")))
     run.set_defaults(func=run_command)
 

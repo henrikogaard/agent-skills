@@ -84,7 +84,7 @@ case "$TASK_TYPE" in
     limited_chain=("opencode-go/deepseek-v4-flash")
     ;;
   code-small)
-    default_chain=("${mistral_chain[@]}" "airouter/Qwen3.6" "airouter/DeepSeek-V4-Flash" "opencode/north-mini-code-free")
+    default_chain=("airouter/Qwen3.6" "opencode/north-mini-code-free" "${mistral_chain[@]}" "airouter/DeepSeek-V4-Flash")
     limited_chain=("opencode-go/kimi-k2.7-code" "opencode-go/qwen3.7-plus" "opencode-go/deepseek-v4-flash")
     ;;
   debug)

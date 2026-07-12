@@ -111,6 +111,53 @@ class DelegateCliTests(unittest.TestCase):
             self.assertIn("--auto", args)
             self.assertIn("--file", args)
 
+    def test_opencode_worker_disables_unneeded_mcp_tools(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            fake_bin = root / "bin"
+            fake_bin.mkdir()
+            config_file = root / "opencode-config.json"
+            report = valid_report("fake/one")
+            write_executable(
+                fake_bin / "opencode",
+                f"#!/usr/bin/env python3\nimport os\nopen({str(config_file)!r}, 'w').write(os.environ.get('OPENCODE_CONFIG_CONTENT', ''))\nprint({report!r})\n",
+            )
+
+            result = self.run_delegate(root, fake_bin)
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            config = json.loads(config_file.read_text())
+            self.assertEqual(
+                config["tools"],
+                {"infomaniak_*": False, "cua-driver_*": False},
+            )
+
+    def test_explicit_mcp_override_is_preserved(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            fake_bin = root / "bin"
+            fake_bin.mkdir()
+            config_file = root / "opencode-config.json"
+            report = valid_report("fake/one")
+            write_executable(
+                fake_bin / "opencode",
+                f"#!/usr/bin/env python3\nimport os\nopen({str(config_file)!r}, 'w').write(os.environ.get('OPENCODE_CONFIG_CONTENT', ''))\nprint({report!r})\n",
+            )
+            original = os.environ.get("OPENCODE_CONFIG_CONTENT")
+            os.environ["OPENCODE_CONFIG_CONTENT"] = json.dumps({"tools": {"infomaniak_*": True}})
+            try:
+                result = self.run_delegate(root, fake_bin)
+            finally:
+                if original is None:
+                    os.environ.pop("OPENCODE_CONFIG_CONTENT", None)
+                else:
+                    os.environ["OPENCODE_CONFIG_CONTENT"] = original
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            config = json.loads(config_file.read_text())
+            self.assertEqual(config["tools"]["infomaniak_*"], True)
+            self.assertEqual(config["tools"]["cua-driver_*"], False)
+
     def test_provider_failure_falls_back_to_next_model(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -129,13 +176,32 @@ print({report!r})
 """,
             )
 
-            result = self.run_delegate(root, fake_bin)
+            result = self.run_delegate(root, fake_bin, "--max-attempts", "2")
 
             self.assertEqual(result.returncode, 0, result.stderr)
             state = json.loads((Path(result.stdout.strip()) / "state.json").read_text())
             self.assertEqual([attempt["model"] for attempt in state["attempts"]], ["fake/one", "fake/two"])
             self.assertEqual(state["attempts"][0]["state"], "provider-unavailable")
             self.assertEqual(state["attempts"][1]["state"], "accepted")
+
+    def test_default_attempt_limit_stops_after_one_provider_failure(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            fake_bin = root / "bin"
+            fake_bin.mkdir()
+            write_executable(
+                fake_bin / "opencode",
+                "#!/usr/bin/env python3\n"
+                "print('ProviderError: model provider unavailable (HTTP 503 capacity exhausted)')\n"
+                "raise SystemExit(1)\n",
+            )
+
+            result = self.run_delegate(root, fake_bin)
+
+            self.assertEqual(result.returncode, 124, result.stderr)
+            state = json.loads((Path(result.stdout.strip()) / "state.json").read_text())
+            self.assertEqual(len(state["attempts"]), 1)
+            self.assertEqual(state["attempts"][0]["state"], "provider-unavailable")
 
     def test_crashed_process_is_replaced(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -154,7 +220,7 @@ print({report!r})
 """,
             )
 
-            result = self.run_delegate(root, fake_bin)
+            result = self.run_delegate(root, fake_bin, "--max-attempts", "2")
 
             self.assertEqual(result.returncode, 0, result.stderr)
             state = json.loads((Path(result.stdout.strip()) / "state.json").read_text())
