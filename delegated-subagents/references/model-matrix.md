@@ -19,6 +19,7 @@ Honor explicit hints before default routing:
 | `use Mistral Medium` | Prefer `mistral/mistral-medium-latest`. |
 | `allow OpenCodeGo` | Permit `opencode-go/*` fallback models. |
 | `do not use Devin` | Do not spawn Devin. |
+| `launch subagents with SWE 1.7` | Use `scripts/spawn-devin.sh --model swe-1.7`. |
 | explicit `provider/model` | Use that model first if visible. |
 
 ## Cost Buckets

@@ -1,6 +1,6 @@
 ---
 name: delegated-subagents
-description: Use only when the user explicitly requests delegated subagents, `$delegated-subagents`, or external OpenCode or Devin CLI workers for bounded repository work. Do not use for ordinary subagent delegation.
+description: Use when the user explicitly requests delegated subagents, external OpenCode or Devin CLI workers, or asks to launch subagents with a named external model such as SWE 1.7. Do not use for ordinary subagent delegation.
 ---
 
 # Delegated Subagents
@@ -12,14 +12,31 @@ owners of the user's request.
 ## Activation
 
 This skill is opt-in. Invoke it only when the user explicitly says `delegated
-subagents`, `$delegated-subagents`, or clearly requests external OpenCode or
-Devin CLI workers.
+subagents`, `$delegated-subagents`, clearly requests external OpenCode or Devin
+CLI workers, or names an external worker model. For example, `launch subagents
+with SWE 1.7 to implement this issue` activates this skill and selects Devin.
 
 Do not invoke it merely because a task involves coding, debugging, review,
 triage, research, documentation, or parallel work. When this skill has not
 been explicitly requested, use the default native GPT/Codex subagent management
 when subagents are otherwise appropriate and authorized by the active task
 instructions. Do not silently route work to external or cheaper models.
+
+## Explicit Model Requests
+
+A named external model is both authorization to delegate and a routing override.
+Honor it before the task-type defaults, announce it, and record it in the run
+report.
+
+| User request | Launcher and model |
+|---|---|
+| `launch subagents with SWE 1.7` or `use Devin SWE 1.7` | `scripts/spawn-devin.sh --model swe-1.7` |
+| `use aiRouter Qwen` or explicit `airouter/...` | `scripts/spawn-opencode.sh --models airouter/...` |
+| `use Mistral Medium` or explicit `mistral/...` | `scripts/spawn-opencode.sh --models mistral/...` |
+| `only free OpenCode` | `scripts/spawn-opencode.sh --policy only-free` |
+
+Do not treat a request for the main Codex model as external-worker authorization.
+Generic requests for subagents still use native GPT/Codex management.
 
 ## Non-Interactive Rule
 
@@ -52,7 +69,8 @@ and only when the user has authorized the specific external action.
 1. Define the task and acceptance criteria.
 2. Select a task type: `scout`, `bulk`, `code-small`, `debug`, `review`,
    `closure-validation`, or `long-autonomous`.
-3. Read `references/model-matrix.md` and honor the user's model preference first.
+3. Read `references/model-matrix.md`, map an explicit external model request to
+   its launcher, and honor it before the task-type defaults.
 4. Create a manifest from `references/task-manifest-template.json` for editing,
    issue, PR-readiness, or closure-validation work.
 5. Create a prompt from `references/subagent-prompt-template.md`.
