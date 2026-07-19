@@ -14,6 +14,7 @@ import signal
 import subprocess
 import sys
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -173,6 +174,8 @@ def build_command(args: argparse.Namespace, model: str, prompt_copy: Path, run_d
             "opencode",
             "run",
             instruction,
+            "--format",
+            "json",
             "--pure",
             "--auto",
             "-m",
@@ -191,7 +194,7 @@ def build_command(args: argparse.Namespace, model: str, prompt_copy: Path, run_d
             "cursor-agent",
             "--print",
             "--output-format",
-            "text",
+            "stream-json",
             "--model",
             model,
             "--workspace",
@@ -239,6 +242,294 @@ def append_history(state_root: Path, record: dict[str, Any]) -> None:
         handle.write(json.dumps(record, sort_keys=True) + "\n")
         handle.flush()
         fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+
+def billing_class(tool: str, model: str) -> str:
+    lowered = model.lower()
+    if tool == "cursor":
+        return "subscription"
+    if "swe-1.7" in lowered or lowered.startswith("airouter/"):
+        return "free"
+    if lowered.startswith("opencode/") and "free" in lowered:
+        return "free"
+    if lowered.startswith("mistral/") or "mistral" in lowered:
+        return "subscription"
+    return "unknown"
+
+
+def empty_usage(tool: str, model: str, error: str | None = None) -> dict[str, Any]:
+    classification = billing_class(tool, model)
+    usage: dict[str, Any] = {
+        "source": "unavailable",
+        "input_tokens": None,
+        "cached_input_tokens": None,
+        "cache_read_tokens": None,
+        "cache_write_tokens": None,
+        "output_tokens": None,
+        "reasoning_tokens": None,
+        "total_tokens": None,
+        "reported_cost_usd": None,
+        "billing_class": classification,
+        "actual_charge_usd": 0 if classification == "free" else None,
+    }
+    if error:
+        usage["error"] = error
+    return usage
+
+
+def _number(value: Any) -> int | float | None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    return value
+
+
+def _json_documents(text: str) -> list[Any]:
+    documents: list[Any] = []
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        try:
+            documents.append(json.loads(stripped))
+        except json.JSONDecodeError:
+            continue
+    if not documents and text.strip():
+        try:
+            documents.append(json.loads(text))
+        except json.JSONDecodeError:
+            pass
+    return documents
+
+
+def _walk_dicts(value: Any):
+    if isinstance(value, dict):
+        yield value
+        for child in value.values():
+            yield from _walk_dicts(child)
+    elif isinstance(value, list):
+        for child in value:
+            yield from _walk_dicts(child)
+
+
+def _sum_optional(rows: list[dict[str, Any]], key: str) -> int | float | None:
+    values = [_number(row.get(key)) for row in rows]
+    present = [value for value in values if value is not None]
+    return sum(present) if present else None
+
+
+def _usage_from_opencode(text: str) -> dict[str, Any] | None:
+    rows: list[dict[str, Any]] = []
+    for document in _json_documents(text):
+        for item in _walk_dicts(document):
+            tokens = item.get("tokens")
+            if not isinstance(tokens, dict):
+                continue
+            if not any(key in tokens for key in ("total", "input", "output", "reasoning", "cache")):
+                continue
+            cache = tokens.get("cache") if isinstance(tokens.get("cache"), dict) else {}
+            rows.append(
+                {
+                    "input_tokens": tokens.get("input"),
+                    "cached_input_tokens": cache.get("read"),
+                    "cache_read_tokens": cache.get("read"),
+                    "cache_write_tokens": cache.get("write"),
+                    "output_tokens": tokens.get("output"),
+                    "reasoning_tokens": tokens.get("reasoning"),
+                    "total_tokens": tokens.get("total"),
+                    "reported_cost_usd": item.get("cost"),
+                }
+            )
+    if not rows:
+        return None
+    return {key: _sum_optional(rows, key) for key in rows[0]}
+
+
+def _usage_from_cursor(text: str) -> dict[str, Any] | None:
+    rows: list[dict[str, Any]] = []
+    seen_candidates: set[int] = set()
+    aliases = {
+        "input_tokens": ("input_tokens", "inputTokens", "prompt_tokens", "promptTokens"),
+        "cached_input_tokens": ("cached_input_tokens", "cachedInputTokens", "cache_read_tokens", "cacheReadTokens"),
+        "cache_read_tokens": ("cache_read_tokens", "cacheReadTokens", "cached_input_tokens", "cachedInputTokens"),
+        "cache_write_tokens": ("cache_write_tokens", "cacheWriteTokens"),
+        "output_tokens": ("output_tokens", "outputTokens", "completion_tokens", "completionTokens"),
+        "reasoning_tokens": ("reasoning_tokens", "reasoningTokens"),
+        "total_tokens": ("total_tokens", "totalTokens"),
+        "reported_cost_usd": ("cost_usd", "costUsd", "cost"),
+    }
+    for document in _json_documents(text):
+        for item in _walk_dicts(document):
+            candidate = item.get("usage") if isinstance(item.get("usage"), dict) else item
+            identity = id(candidate)
+            if identity in seen_candidates:
+                continue
+            if not any(alias in candidate for names in aliases.values() for alias in names):
+                continue
+            seen_candidates.add(identity)
+            row: dict[str, Any] = {}
+            for target, names in aliases.items():
+                row[target] = next((candidate[name] for name in names if name in candidate), None)
+            rows.append(row)
+    if not rows:
+        return None
+    result = {key: _sum_optional(rows, key) for key in aliases}
+    if result["total_tokens"] is None:
+        input_tokens = result["input_tokens"]
+        output_tokens = result["output_tokens"]
+        if input_tokens is not None and output_tokens is not None:
+            result["total_tokens"] = input_tokens + output_tokens
+    return result
+
+
+def capture_attempt_usage(tool: str, model: str, log_text: str, run_dir: Path) -> dict[str, Any]:
+    try:
+        metrics: dict[str, Any] | None = None
+        if tool == "devin":
+            export = load_state(run_dir / "devin-export.json")
+            final = export.get("final_metrics")
+            if isinstance(final, dict):
+                prompt = _number(final.get("total_prompt_tokens"))
+                completion = _number(final.get("total_completion_tokens"))
+                metrics = {
+                    "input_tokens": prompt,
+                    "cached_input_tokens": _number(final.get("total_cached_tokens")),
+                    "cache_read_tokens": _number(final.get("total_cached_tokens")),
+                    "cache_write_tokens": None,
+                    "output_tokens": completion,
+                    "reasoning_tokens": None,
+                    "total_tokens": prompt + completion if prompt is not None and completion is not None else None,
+                    "reported_cost_usd": None,
+                }
+        elif tool == "opencode":
+            metrics = _usage_from_opencode(log_text)
+        elif tool == "cursor":
+            metrics = _usage_from_cursor(log_text)
+        if metrics is None or metrics.get("total_tokens") is None:
+            return empty_usage(tool, model)
+    except (OSError, json.JSONDecodeError, TypeError, ValueError) as error:
+        return empty_usage(tool, model, str(error))
+
+    classification = billing_class(tool, model)
+    return {
+        "source": "provider-reported",
+        **metrics,
+        "billing_class": classification,
+        "actual_charge_usd": 0 if classification == "free" else None,
+    }
+
+
+def report_text_from_log(tool: str, log_text: str) -> str:
+    if tool == "devin":
+        return log_text
+    documents = _json_documents(log_text)
+    if not documents:
+        return log_text
+    text_values: list[str] = []
+    if tool == "opencode":
+        for document in documents:
+            if not isinstance(document, dict) or document.get("type") != "text":
+                continue
+            part = document.get("part")
+            value = part.get("text") if isinstance(part, dict) and part.get("type") == "text" else None
+            if isinstance(value, str):
+                text_values.append(value)
+    elif tool == "cursor":
+        for document in documents:
+            if not isinstance(document, dict):
+                continue
+            if document.get("type") == "assistant":
+                message = document.get("message")
+                content = message.get("content") if isinstance(message, dict) else None
+                if isinstance(content, list):
+                    for item in content:
+                        value = item.get("text") if isinstance(item, dict) and item.get("type") == "text" else None
+                        if isinstance(value, str):
+                            text_values.append(value)
+            if document.get("type") == "tool_call":
+                tool_call = document.get("tool_call")
+                plan_call = tool_call.get("createPlanToolCall") if isinstance(tool_call, dict) else None
+                plan_args = plan_call.get("args") if isinstance(plan_call, dict) else None
+                plan = plan_args.get("plan") if isinstance(plan_args, dict) else None
+                if isinstance(plan, str):
+                    text_values.append(plan)
+            if document.get("type") == "result" and isinstance(document.get("result"), str):
+                text_values.append(document["result"])
+    structured = [
+        value
+        for value in text_values
+        if "STATUS:" in value and "MODEL:" in value and "CLOSURE_RECOMMENDATION:" in value
+    ]
+    if structured:
+        return structured[-1]
+    return "\n".join(text_values) if text_values else log_text
+
+
+def provider_session_ids(log_text: str) -> list[str]:
+    identifiers: list[str] = []
+    for document in _json_documents(log_text):
+        for item in _walk_dicts(document):
+            for key in ("sessionID", "sessionId", "session_id", "chatId", "chat_id"):
+                value = item.get(key)
+                if isinstance(value, str) and value and value not in identifiers:
+                    identifiers.append(value)
+    return identifiers
+
+
+def _parse_time(value: str) -> datetime:
+    parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=timezone.utc)
+
+
+def codex_usage_delta(session_path: Path, started_at: str, finished_at: str) -> dict[str, Any]:
+    unavailable = empty_usage("codex", "codex")
+    unavailable["billing_class"] = "included-codex"
+    snapshots: list[tuple[datetime, dict[str, Any]]] = []
+    try:
+        for line in session_path.read_text(encoding="utf-8", errors="replace").splitlines():
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            payload = event.get("payload")
+            if event.get("type") != "event_msg" or not isinstance(payload, dict) or payload.get("type") != "token_count":
+                continue
+            info = payload.get("info")
+            usage = info.get("total_token_usage") if isinstance(info, dict) else None
+            timestamp = event.get("timestamp")
+            if isinstance(timestamp, str) and isinstance(usage, dict):
+                snapshots.append((_parse_time(timestamp), usage))
+        start = _parse_time(started_at)
+        finish = _parse_time(finished_at)
+    except (OSError, TypeError, ValueError) as error:
+        unavailable["error"] = str(error)
+        return unavailable
+    before = [item for item in snapshots if item[0] <= start]
+    after = [item for item in snapshots if item[0] >= finish]
+    if not before or not after:
+        unavailable["error"] = "no Codex token snapshots surround the selected run window"
+        return unavailable
+    baseline = max(before, key=lambda item: item[0])[1]
+    final = min(after, key=lambda item: item[0])[1]
+    fields = {
+        "input_tokens": "input_tokens",
+        "cached_input_tokens": "cached_input_tokens",
+        "cache_read_tokens": "cached_input_tokens",
+        "cache_write_tokens": "cache_write_input_tokens",
+        "output_tokens": "output_tokens",
+        "reasoning_tokens": "reasoning_output_tokens",
+        "total_tokens": "total_tokens",
+    }
+    result: dict[str, Any] = {
+        "source": "codex-session-delta",
+        "reported_cost_usd": None,
+        "billing_class": "included-codex",
+        "actual_charge_usd": None,
+    }
+    for target, source in fields.items():
+        before_value = _number(baseline.get(source))
+        after_value = _number(final.get(source))
+        result[target] = max(0, after_value - before_value) if before_value is not None and after_value is not None else None
+    return result
 
 
 def count_active_runs(state_root: Path, repo: Path) -> tuple[int, int]:
@@ -448,6 +739,152 @@ def scorecard_command(args: argparse.Namespace) -> int:
         print("TASK\tMODEL\tRUNS\tCOMPLETE_RATE\tAVG_SECONDS\tRESULTS")
         for row in rows:
             print(f"{row['task_type']}\t{row['model']}\t{row['runs']}\t{row['completion_rate']}\t{row['average_duration_seconds']}\t{json.dumps(row['results'], sort_keys=True)}")
+    return 0
+
+
+USAGE_TOTAL_FIELDS = (
+    "input_tokens",
+    "cached_input_tokens",
+    "cache_read_tokens",
+    "cache_write_tokens",
+    "output_tokens",
+    "reasoning_tokens",
+    "total_tokens",
+    "reported_cost_usd",
+)
+
+
+def _empty_totals() -> dict[str, int | float]:
+    return {field: 0 for field in USAGE_TOTAL_FIELDS}
+
+
+def _add_usage(totals: dict[str, int | float], usage: dict[str, Any]) -> None:
+    for field in USAGE_TOTAL_FIELDS:
+        value = _number(usage.get(field))
+        if value is not None:
+            totals[field] += value
+
+
+def usage_report_command(args: argparse.Namespace) -> int:
+    selected: list[tuple[Path, dict[str, Any]]] = []
+    for run_dir, state in iter_states(args.state_root):
+        if args.run and state.get("run_id", run_dir.name) != args.run:
+            continue
+        selected.append((run_dir, state))
+
+    external = _empty_totals()
+    coverage = {"attempts": 0, "measured": 0, "unavailable": 0}
+    grouped: dict[tuple[str, str, str, str, str], dict[str, Any]] = {}
+    known_actual_charge = 0.0
+    unknown_actual_charge = 0
+    for run_dir, state in selected:
+        tool = str(state.get("tool", "unknown"))
+        task_type = str(state.get("task_type", "unknown"))
+        attempts = state.get("attempts", [])
+        if not isinstance(attempts, list):
+            continue
+        for attempt in attempts:
+            if not isinstance(attempt, dict):
+                continue
+            coverage["attempts"] += 1
+            model = str(attempt.get("model", "unknown"))
+            usage = attempt.get("usage")
+            if not isinstance(usage, dict) and (tool != "devin" or len(attempts) == 1):
+                log_text = ""
+                log_value = attempt.get("log")
+                if isinstance(log_value, str):
+                    try:
+                        log_text = Path(log_value).read_text(encoding="utf-8", errors="replace")
+                    except OSError:
+                        pass
+                usage = capture_attempt_usage(tool, model, log_text, run_dir)
+            if not isinstance(usage, dict) or _number(usage.get("total_tokens")) is None:
+                coverage["unavailable"] += 1
+                continue
+            coverage["measured"] += 1
+            _add_usage(external, usage)
+            classification = str(usage.get("billing_class", billing_class(tool, model)))
+            attempt_time = attempt.get("started_at") or state.get("created_at")
+            date = str(attempt_time)[:10] if isinstance(attempt_time, str) else "unknown"
+            key = (date, tool, model, task_type, classification)
+            if key not in grouped:
+                grouped[key] = {
+                    "date": date,
+                    "tool": tool,
+                    "model": model,
+                    "task_type": task_type,
+                    "billing_class": classification,
+                    "attempts": 0,
+                    **_empty_totals(),
+                }
+            grouped[key]["attempts"] += 1
+            _add_usage(grouped[key], usage)
+            actual_charge = _number(usage.get("actual_charge_usd"))
+            if actual_charge is None:
+                unknown_actual_charge += 1
+            else:
+                known_actual_charge += float(actual_charge)
+
+    report: dict[str, Any] = {
+        "generated_at": utc_now(),
+        "runs": len(selected),
+        "coverage": coverage,
+        "external": {
+            **external,
+            "actual_charge_usd_known": round(known_actual_charge, 6),
+            "actual_charge_unknown_attempts": unknown_actual_charge,
+        },
+        "groups": sorted(
+            grouped.values(), key=lambda row: (row["date"], row["tool"], row["model"], row["task_type"])
+        ),
+        "codex": None,
+        "delegated_share": None,
+    }
+    if args.codex_session and selected:
+        starts: list[str] = []
+        finishes: list[str] = []
+        for _, state in selected:
+            attempts = state.get("attempts") if isinstance(state.get("attempts"), list) else []
+            attempt_starts = [item.get("started_at") for item in attempts if isinstance(item, dict) and isinstance(item.get("started_at"), str)]
+            attempt_finishes = [item.get("finished_at") for item in attempts if isinstance(item, dict) and isinstance(item.get("finished_at"), str)]
+            state_start = state.get("created_at")
+            state_finish = state.get("finished_at") or state.get("updated_at")
+            if attempt_starts:
+                starts.append(min(attempt_starts, key=_parse_time))
+            elif isinstance(state_start, str):
+                starts.append(state_start)
+            if attempt_finishes:
+                finishes.append(max(attempt_finishes, key=_parse_time))
+            elif isinstance(state_finish, str):
+                finishes.append(state_finish)
+        if starts and finishes:
+            start = min(starts, key=_parse_time)
+            finish = max(finishes, key=_parse_time)
+            report["codex"] = codex_usage_delta(args.codex_session, start, finish)
+            external_total = _number(external.get("total_tokens"))
+            codex_total = _number(report["codex"].get("total_tokens"))
+            if (
+                coverage["measured"] > 0
+                and external_total is not None
+                and codex_total is not None
+                and external_total + codex_total > 0
+            ):
+                report["delegated_share"] = round(external_total / (external_total + codex_total), 6)
+
+    if args.json:
+        print(json.dumps(report, indent=2, sort_keys=True))
+        return 0
+    print("DATE\tPROVIDER/MODEL\tTASK\tBILLING\tATTEMPTS\tINPUT\tCACHE_READ\tOUTPUT\tREASONING\tTOTAL\tREPORTED_USD")
+    for row in report["groups"]:
+        print(
+            f"{row['date']}\t{row['tool']}/{row['model']}\t{row['task_type']}\t{row['billing_class']}\t{row['attempts']}\t"
+            f"{row['input_tokens']}\t{row['cache_read_tokens']}\t{row['output_tokens']}\t"
+            f"{row['reasoning_tokens']}\t{row['total_tokens']}\t{row['reported_cost_usd']}"
+        )
+    print(
+        f"coverage={coverage['measured']}/{coverage['attempts']} measured "
+        f"external_total={external['total_tokens']} delegated_share={report['delegated_share']}"
+    )
     return 0
 
 
@@ -1047,10 +1484,29 @@ def run_command(args: argparse.Namespace) -> int:
         current_identity = None
 
         log_text = log_path.read_text(encoding="utf-8", errors="replace")
+        attempt["usage"] = capture_attempt_usage(args.tool, model, log_text, run_dir)
+        session_ids = provider_session_ids(log_text)
+        if session_ids:
+            attempt["provider_session_ids"] = session_ids
+
+        def append_attempt_history(result: str) -> None:
+            append_history(
+                args.state_root,
+                {
+                    "at": utc_now(),
+                    "tool": args.tool,
+                    "model": model,
+                    "task_type": args.task,
+                    "result": result,
+                    "duration_seconds": attempt["duration_seconds"],
+                    "usage": attempt["usage"],
+                },
+            )
+
         if terminal_state in {"timeout", "idle-timeout", "resource-limit", "cancelled"}:
             attempt["state"] = terminal_state
             last_terminal_state = terminal_state
-            append_history(args.state_root, {"at": utc_now(), "tool": args.tool, "model": model, "task_type": args.task, "result": terminal_state, "duration_seconds": attempt["duration_seconds"]})
+            append_attempt_history(terminal_state)
             save_state(run_dir, state)
             if terminal_state == "cancelled":
                 state["state"] = "cancelled"
@@ -1063,24 +1519,24 @@ def run_command(args: argparse.Namespace) -> int:
             if process_died(return_code):
                 attempt["state"] = "died"
                 last_terminal_state = "died"
-                append_history(args.state_root, {"at": utc_now(), "tool": args.tool, "model": model, "task_type": args.task, "result": "died", "duration_seconds": attempt["duration_seconds"]})
+                append_attempt_history("died")
                 save_state(run_dir, state)
                 continue
             if is_availability_failure(log_text, return_code):
                 attempt["state"] = "provider-unavailable"
                 last_terminal_state = "provider-unavailable"
-                append_history(args.state_root, {"at": utc_now(), "tool": args.tool, "model": model, "task_type": args.task, "result": "provider-unavailable", "duration_seconds": attempt["duration_seconds"]})
+                append_attempt_history("provider-unavailable")
                 save_state(run_dir, state)
                 continue
             attempt["state"] = "failed"
             state["state"] = "failed"
             state["decision"] = "rejected"
             state["error"] = f"subagent exited with code {return_code}"
-            append_history(args.state_root, {"at": utc_now(), "tool": args.tool, "model": model, "task_type": args.task, "result": "failed", "duration_seconds": attempt["duration_seconds"]})
+            append_attempt_history("failed")
             save_state(run_dir, state)
             return return_code or 1
 
-        report = parse_report(log_text, expected_model=model)
+        report = parse_report(report_text_from_log(args.tool, log_text), expected_model=model)
         git_after_result = git(args.workdir, "status", "--porcelain", check=False)
         git_after = git_after_result.stdout if git_after_result.returncode == 0 else ""
         state["git_after"] = git_after
@@ -1111,7 +1567,7 @@ def run_command(args: argparse.Namespace) -> int:
                     state["policy_violation"] = "subagent changed paths outside manifest scope"
                     state["out_of_scope_paths"] = out_of_scope
         final_decision = state["decision"]
-        append_history(args.state_root, {"at": utc_now(), "tool": args.tool, "model": model, "task_type": args.task, "result": final_decision, "duration_seconds": attempt["duration_seconds"]})
+        append_attempt_history(final_decision)
         save_state(run_dir, state)
         if final_decision == "worker-complete":
             return 0
@@ -1175,6 +1631,13 @@ def build_parser() -> argparse.ArgumentParser:
     scorecard.add_argument("--state-root", type=Path, default=DEFAULT_STATE_ROOT)
     scorecard.add_argument("--json", action="store_true")
     scorecard.set_defaults(func=scorecard_command)
+
+    usage = subparsers.add_parser("usage-report", help="summarize delegated worker token usage")
+    usage.add_argument("--state-root", type=Path, default=DEFAULT_STATE_ROOT)
+    usage.add_argument("--run", help="limit the report to one run id")
+    usage.add_argument("--codex-session", type=Path, help="optional Codex rollout JSONL for a supervising-session delta")
+    usage.add_argument("--json", action="store_true")
+    usage.set_defaults(func=usage_report_command)
 
     models = subparsers.add_parser("models", help="refresh the live OpenCode model snapshot")
     models.add_argument("--state-root", type=Path, default=DEFAULT_STATE_ROOT)

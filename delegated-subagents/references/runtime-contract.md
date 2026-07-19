@@ -103,6 +103,9 @@ probe; three recent comparable hard failures exclude a route until reprobed.
 
 ```bash
 scripts/status.sh --json
+scripts/usage-report.sh --json
+scripts/usage-report.sh --run <run-id> --json
+scripts/usage-report.sh --codex-session /abs/path/to/codex-rollout.jsonl --json
 scripts/cancel-run.sh <run-id>
 scripts/cleanup-run.sh --dry-run
 scripts/cleanup-run.sh
@@ -113,3 +116,27 @@ The runtime stores atomic JSON, UUID-backed directories, process identities,
 heartbeats, time/RSS limits, and process groups. Cancellation verifies PID,
 PGID, and start signature before TERM/KILL. Pruning removes only terminal runs
 older than the requested retention window.
+
+## Usage Telemetry
+
+New attempts store a normalized `usage` object in `state.json` and model
+history. Devin totals come from `devin-export.json`; OpenCode and Cursor use
+their structured output. Missing provider counters are `null` with
+`source: unavailable`, never inferred from response length.
+
+`usage-report` separates input, cache read/write, output, reasoning, total
+tokens, reported nominal cost, billing class, and known actual charge. Free
+routes have an actual charge of zero. Subscription routes keep actual charge
+unknown unless independently known; reported model cost is not treated as a
+subscription bill.
+
+With `--codex-session`, the report reads only `token_count` events from the
+specified rollout JSONL and subtracts cumulative snapshots surrounding the
+selected run window. The resulting delegated share is available only when both
+external and Codex totals are measured. Raw prompts and transcripts are never
+included in the report or review packet.
+
+For historical runs without a normalized `usage` object, the reporter reads an
+existing Devin export and attempt log without mutating old state. Historical
+OpenCode or Cursor attempts without structured counters remain unavailable and
+are reflected in capture coverage.

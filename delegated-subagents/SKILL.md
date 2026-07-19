@@ -143,6 +143,32 @@ python3 scripts/delegate.py record-review <implementation-run> \
 Use `changes-required` or `blocked` instead of `approved` when appropriate.
 Only an `approved` state permits recommending acceptance.
 
+## Usage Measurement
+
+Every new attempt records provider-reported input, cached input, output,
+reasoning, total tokens, reported cost, and billing class when the worker CLI
+exposes them. Missing counters stay `unavailable`; never estimate them from log
+length. Free routes record zero actual charge even when a tool reports nominal
+API-equivalent cost.
+
+```bash
+# External worker usage captured by this skill
+scripts/usage-report.sh
+
+# One run, machine-readable
+scripts/usage-report.sh --run <run-id> --json
+
+# Compare selected runs with the supervising Codex session window
+scripts/usage-report.sh --codex-session /abs/path/to/codex-rollout.jsonl --json
+```
+
+The optional Codex comparison uses cumulative token snapshots surrounding the
+delegated run window. Treat its `delegated_share` as a workflow measurement:
+the Codex delta includes all coordination and review activity in that session
+window. The reporter reads existing Devin exports without modifying old state;
+other old runs without structured usage remain unavailable and reduce capture
+coverage.
+
 ## Safety And Operations
 
 Default to one active worker, one model attempt, one independent pre-review,
@@ -159,6 +185,7 @@ assessment rules.
 ## Bundled Files
 
 - `scripts/delegate.py`: runner, state, model inventory, review packet, and review gate.
+- `scripts/usage-report.sh`: worker-token, billing-class, and optional Codex-delta report.
 - `scripts/spawn-opencode.sh`, `spawn-devin.sh`, `spawn-cursor.sh`: provider launchers.
 - `scripts/model-policy.py`, `resolve-model.sh`: live free-model usability and routing.
 - `references/runtime-contract.md`: state, review, process, and worktree contract.
