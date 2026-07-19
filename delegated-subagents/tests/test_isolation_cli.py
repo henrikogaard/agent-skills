@@ -309,6 +309,75 @@ ready-for-review''')
             self.assertIn("--print", args)
             self.assertNotIn("PRIVATE DEVIN PROMPT", args)
 
+    def test_cursor_edit_profile_is_noninteractive_sandboxed_and_prompt_safe(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            fake_bin = root / "bin"
+            fake_bin.mkdir()
+            args_file = root / "args.json"
+            write_executable(
+                fake_bin / "cursor-agent",
+                f"""#!/usr/bin/env python3
+import json,sys
+json.dump(sys.argv[1:], open({str(args_file)!r}, 'w'))
+model = sys.argv[sys.argv.index('--model') + 1]
+print(f'''STATUS: success
+MODEL: {{model}}
+TASK_TYPE: code-small
+REPO: {root}
+ACCEPTANCE_CRITERIA:
+- [pass] bounded task -> complete
+CLOSURE_RECOMMENDATION:
+ready-for-review''')
+""",
+            )
+            prompt = root / "prompt.txt"
+            prompt.write_text("PRIVATE CURSOR PROMPT")
+            env = os.environ.copy()
+            env["PATH"] = f"{fake_bin}{os.pathsep}{env['PATH']}"
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(DELEGATE),
+                    "run",
+                    "--tool",
+                    "cursor",
+                    "--task",
+                    "code-small",
+                    "--prompt-file",
+                    str(prompt),
+                    "--workdir",
+                    str(root),
+                    "--models",
+                    "composer-2.5",
+                    "--permission-profile",
+                    "edit",
+                    "--isolation",
+                    "none",
+                    "--state-root",
+                    str(root / "state"),
+                    "--poll",
+                    "0.1",
+                ],
+                text=True,
+                capture_output=True,
+                env=env,
+                timeout=15,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            args = json.loads(args_file.read_text())
+            self.assertIn("--print", args)
+            self.assertIn("--sandbox", args)
+            self.assertIn("enabled", args)
+            self.assertIn("--force", args)
+            self.assertIn("--trust", args)
+            self.assertNotIn("PRIVATE CURSOR PROMPT", args)
+            input_dir = Path(args[args.index("--add-dir") + 1])
+            self.assertEqual(input_dir.name, "input")
+            self.assertFalse((input_dir / "state.json").exists())
+
 
 if __name__ == "__main__":
     unittest.main()

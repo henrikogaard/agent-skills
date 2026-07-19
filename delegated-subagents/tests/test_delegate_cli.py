@@ -104,12 +104,57 @@ class DelegateCliTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             run_dir = Path(result.stdout.strip())
             state = json.loads((run_dir / "state.json").read_text())
-            self.assertEqual(state["state"], "accepted")
-            self.assertEqual(state["decision"], "accepted")
+            self.assertEqual(state["state"], "worker-complete")
+            self.assertEqual(state["decision"], "worker-complete")
             args = json.loads(args_file.read_text())
             self.assertNotIn("PRIVATE PROMPT CONTENT", args)
             self.assertIn("--auto", args)
             self.assertIn("--file", args)
+
+    def test_opencode_json_output_records_usage_and_report(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            fake_bin = root / "bin"
+            fake_bin.mkdir()
+            args_file = root / "args.json"
+            report = valid_report("fake/one")
+            payloads = [
+                {
+                    "type": "text",
+                    "sessionID": "ses_test_usage",
+                    "part": {"type": "text", "text": report},
+                },
+                {
+                    "type": "step_finish",
+                    "sessionID": "ses_test_usage",
+                    "part": {
+                        "type": "step-finish",
+                        "tokens": {
+                            "input": 600,
+                            "output": 100,
+                            "reasoning": 50,
+                            "total": 750,
+                            "cache": {"read": 400, "write": 0},
+                        },
+                        "cost": 0.01,
+                    },
+                },
+            ]
+            write_executable(
+                fake_bin / "opencode",
+                f"#!/usr/bin/env python3\nimport json,sys\njson.dump(sys.argv[1:], open({str(args_file)!r}, 'w'))\n[print(json.dumps(item)) for item in {payloads!r}]\n",
+            )
+
+            result = self.run_delegate(root, fake_bin)
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            state = json.loads((Path(result.stdout.strip()) / "state.json").read_text())
+            self.assertEqual(state["attempts"][0]["usage"]["total_tokens"], 750)
+            self.assertEqual(state["attempts"][0]["usage"]["reported_cost_usd"], 0.01)
+            self.assertEqual(state["attempts"][0]["provider_session_ids"], ["ses_test_usage"])
+            args = json.loads(args_file.read_text())
+            self.assertIn("--format", args)
+            self.assertIn("json", args)
 
     def test_opencode_worker_disables_unneeded_mcp_tools(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -182,7 +227,7 @@ print({report!r})
             state = json.loads((Path(result.stdout.strip()) / "state.json").read_text())
             self.assertEqual([attempt["model"] for attempt in state["attempts"]], ["fake/one", "fake/two"])
             self.assertEqual(state["attempts"][0]["state"], "provider-unavailable")
-            self.assertEqual(state["attempts"][1]["state"], "accepted")
+            self.assertEqual(state["attempts"][1]["state"], "worker-complete")
 
     def test_default_attempt_limit_stops_after_one_provider_failure(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -263,7 +308,7 @@ print({report!r})
             self.assertEqual(result.returncode, 0, result.stderr)
             state = json.loads((Path(result.stdout.strip()) / "state.json").read_text())
             self.assertEqual(state["attempts"][0]["state"], "died")
-            self.assertEqual(state["attempts"][1]["state"], "accepted")
+            self.assertEqual(state["attempts"][1]["state"], "worker-complete")
 
     def test_exit_zero_blocked_report_needs_follow_up(self):
         with tempfile.TemporaryDirectory() as temp:

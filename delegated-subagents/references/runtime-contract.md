@@ -1,80 +1,142 @@
 # Runtime Contract
 
-Use `scripts/delegate.py` through the shell wrappers. Runtime state lives under
-`~/.codex/state/delegated-subagents`, outside repositories, with owner-only
-permissions.
+Runtime state lives under `~/.codex/state/delegated-subagents/runs` with
+owner-only permissions. Use the shell wrappers for launches and
+`scripts/delegate.py` for review/state operations.
 
-## State
-
-Each run has an atomic `state.json`, copied prompt, attempt logs, and optional
-manifest. Important states are:
+## State And Acceptance
 
 | State | Meaning |
 |---|---|
-| `starting` | Admitted under concurrency limits, not launched yet. |
-| `running` | Process identity, heartbeat, model, and RSS are current. |
-| `accepted` | Structured report is valid and policy checks passed. Main Codex review is still required. |
-| `needs-follow-up` | Agent reported partial, blocked, or unknown acceptance evidence. |
-| `rejected` | Invalid report, failed criterion, model mismatch, or scope violation. |
-| `provider-unavailable` | Attempt may fall back to the next model. |
-| `timeout`, `idle-timeout`, `resource-limit` | Process group was terminated and may be replaced. |
-| `cancelled` | Main Codex task cancelled and reaped the process group. |
-| `orphaned` | Metadata exists but process identity cannot be proven; cleanup refuses to kill it. |
+| `starting`, `running` | Worker admitted or active. |
+| `worker-complete` | Worker report and scope policy passed; no review or acceptance implied. |
+| `pre-review-complete` | A linked independent external review completed. |
+| `codex-review-required` | Final diff-hashed packet exists; Codex review is mandatory. |
+| `changes-required` | Codex found issues; at most one automatic external repair is allowed. |
+| `blocked` | A user, credential, scope, product, or risk decision is required. |
+| `approved` | Codex reviewed the complete final diff and recorded verification. |
+| `needs-follow-up` | Worker reported partial or unknown evidence. |
+| `rejected` | Report, scope, verification, or policy failed. |
+| `timeout`, `idle-timeout`, `resource-limit`, `cancelled` | Worker was terminated safely. |
+| `orphaned` | Process identity cannot be proven; cleanup refuses to kill it. |
+| `accepted` | Legacy history only; new workers never enter this state. |
 
-An exit code of zero is not acceptance. The runtime validates `STATUS`, `MODEL`,
-`TASK_TYPE`, `REPO`, acceptance-criteria entries, and closure recommendation.
+An exit code of zero from a worker means `worker-complete`, not approval. Only
+`record-review --reviewer codex --decision approved` may create `approved`.
+
+## External Polish And Final Review
+
+Run an independent reviewer against the implementation worktree with
+`--isolation none --permission-profile read-only`. Then create the packet:
+
+```bash
+python3 scripts/delegate.py review-packet <implementation-run> \
+  --pre-review-run <review-run>
+```
+
+The packet contains run metadata, changed paths, acceptance evidence, residual
+risk, the complete tracked and untracked final diff, and its SHA-256 hash. It
+does not copy worker transcripts, prompts, environment dumps, or complete test
+logs into the parent context.
+
+After reading every changed line and checking verification, Codex records:
+
+```bash
+python3 scripts/delegate.py record-review <implementation-run> \
+  --reviewer codex \
+  --decision approved \
+  --verification-summary "full diff reviewed; focused checks passed" \
+  --residual-risk "none"
+```
+
+Valid decisions are `approved`, `changes-required`, and `blocked`. A changed
+diff hash makes an existing approval stale. `status` detects this and returns
+the run to `codex-review-required`.
 
 ## Exit Codes
 
 | Code | Meaning |
 |---|---|
-| `0` | Runtime accepted the structured report; main Codex review remains. |
-| `3` | Needs follow-up. |
-| `4` | Rejected report or policy violation. |
+| `0` | Operation succeeded; for a worker this means `worker-complete`. |
+| `3` | Worker needs follow-up. |
+| `4` | Worker report or policy rejected. |
 | `75` | Concurrency admission denied. |
-| `124` | Attempts exhausted after timeout, idle, resource, or provider failures. |
+| `124` | Attempts exhausted after availability/resource failure. |
 | `130` | Cancelled. |
 
 ## Permissions And Isolation
 
-- Run all CLIs non-interactively with closed stdin.
-- Use OpenCode `--pure --auto`; protect the repository with a managed worktree.
-- Use Devin `auto` for read-only and `accept-edits` for edit jobs, always with
-  `--sandbox` and workspace trust enabled.
-- Default to managed worktrees for both read-only and edit jobs.
-- Reject read-only jobs that change files.
-- When a manifest has `allowed_paths`, reject edit jobs that touch other paths.
-- Preserve dirty delegated worktrees for main-thread inspection. Never delete
-  them automatically.
+- OpenCode uses `--pure --auto` in a managed worktree.
+- Devin maps read-only/edit to `auto`/`accept-edits` with its sandbox enabled.
+- Cursor uses headless print mode, workspace trust, sandboxing, plan mode for
+  read-only, and force approval only inside an edit-scoped managed worktree.
+- Cursor receives a dedicated read-only `input/` root for its prompt, never the
+  run directory containing `state.json` or review records.
+- Closed stdin is mandatory for all workers.
+- Read-only runs that change files are rejected.
+- Edit runs with a manifest are rejected for changes outside `allowed_paths`.
+- Dirty delegated worktrees are preserved for inspection.
 
-The main Codex task chooses the permission profile. Subagents never ask the user
-for approvals. A subagent that needs a decision reports `blocked` or
-`needs-follow-up`; the main task resolves it or asks the user itself when a real
-project-level decision is required.
+## Limits And Fallback
 
-## Resource And Process Safety
+Current defaults are one active run globally, one per repository, and one model
+attempt. Provider availability failures may use an explicitly enabled fallback.
+Bad code, failed tests, malformed reports, auth/permission failures, ambiguous
+scope, and policy violations return to Codex without automatic model churn.
 
-Defaults are three concurrent runs globally, two per repository, 4 GiB RSS for
-OpenCode, 6 GiB for Devin, nice level 5, and three attempts. Override with the
-documented `SUBAGENT_*` environment variables or wrapper flags.
+Default external polish is one implementer, one independent reviewer, and one
+repair cycle. A second `changes-required` decision returns control to Codex.
 
-The runner stores PID, PGID, process start signature, and command fingerprint.
-Cleanup kills a process group only when PID, PGID, and start signature still
-match. It sends TERM, waits, sends KILL if needed, and reaps owned children.
+## Live Models
+
+```bash
+scripts/refresh-models.sh --task code-small --json
+scripts/model-scorecard.sh --json
+```
+
+Every refresh calls `opencode models`. The snapshot records all visible models
+and classifies every current `opencode/*free*` route as `usable`, `probe-only`,
+or `excluded` for the requested task. Unknown free models require a bounded
+probe; three recent comparable hard failures exclude a route until reprobed.
 
 ## Operations
 
 ```bash
-scripts/status.sh
 scripts/status.sh --json
-python3 scripts/delegate.py watch
-scripts/cancel-run.sh <run-id-or-directory>
+scripts/usage-report.sh --json
+scripts/usage-report.sh --run <run-id> --json
+scripts/usage-report.sh --codex-session /abs/path/to/codex-rollout.jsonl --json
+scripts/cancel-run.sh <run-id>
 scripts/cleanup-run.sh --dry-run
 scripts/cleanup-run.sh
-scripts/refresh-models.sh --json
-scripts/model-scorecard.sh --json
 python3 scripts/delegate.py prune --days 14
 ```
 
-Run `prune` after completed work to remove old prompts and logs. The default
-retention is 14 days. It never removes active runs.
+The runtime stores atomic JSON, UUID-backed directories, process identities,
+heartbeats, time/RSS limits, and process groups. Cancellation verifies PID,
+PGID, and start signature before TERM/KILL. Pruning removes only terminal runs
+older than the requested retention window.
+
+## Usage Telemetry
+
+New attempts store a normalized `usage` object in `state.json` and model
+history. Devin totals come from `devin-export.json`; OpenCode and Cursor use
+their structured output. Missing provider counters are `null` with
+`source: unavailable`, never inferred from response length.
+
+`usage-report` separates input, cache read/write, output, reasoning, total
+tokens, reported nominal cost, billing class, and known actual charge. Free
+routes have an actual charge of zero. Subscription routes keep actual charge
+unknown unless independently known; reported model cost is not treated as a
+subscription bill.
+
+With `--codex-session`, the report reads only `token_count` events from the
+specified rollout JSONL and subtracts cumulative snapshots surrounding the
+selected run window. The resulting delegated share is available only when both
+external and Codex totals are measured. Raw prompts and transcripts are never
+included in the report or review packet.
+
+For historical runs without a normalized `usage` object, the reporter reads an
+existing Devin export and attempt log without mutating old state. Historical
+OpenCode or Cursor attempts without structured counters remain unavailable and
+are reflected in capture coverage.

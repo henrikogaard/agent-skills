@@ -6,6 +6,8 @@ HINT="${SUBAGENT_MODEL_HINT:-}"
 POLICY="${SUBAGENT_POLICY:-default}"
 PRINT_ALL=0
 EMITTED_MODELS=""
+SKILL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+STATE_ROOT="${SUBAGENT_STATE_ROOT:-${HOME}/.codex/state/delegated-subagents/runs}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -29,9 +31,28 @@ if ! command -v opencode >/dev/null 2>&1; then
 fi
 
 MODELS="$(opencode models)"
+ASSESSMENTS="$(printf '%s\n' "$MODELS" | python3 "$SKILL_DIR/scripts/model-policy.py" \
+  --task "$TASK_TYPE" --history "$(dirname "$STATE_ROOT")/model-history.jsonl")"
+# Bash 3.2 with `set -u` treats an empty array expansion as unbound. Keep one
+# harmless sentinel; `has_model` ignores it.
+usable_free_chain=("")
+
+while IFS=$'\t' read -r status model reason; do
+  [[ -z "$model" ]] && continue
+  if [[ "$status" == "usable" ]]; then
+    usable_free_chain+=("$model")
+  elif [[ "$status" == "probe-only" || "$status" == "excluded" ]]; then
+    printf '%s: %s (%s)\n' "$status" "$model" "$reason" >&2
+  fi
+done <<< "$ASSESSMENTS"
 
 has_model() {
   printf '%s\n' "$MODELS" | grep -Fxq "$1"
+}
+
+free_is_usable() {
+  local wanted="$1"
+  printf '%s\n' "$ASSESSMENTS" | awk -F '\t' -v model="$wanted" '$1 == "usable" && $2 == model { found=1 } END { exit !found }'
 }
 
 emit_model() {
@@ -48,7 +69,10 @@ emit_model() {
 print_available() {
   local emitted=0
   for model in "$@"; do
-    if has_model "$model" && emit_model "$model"; then
+    if has_model "$model" && [[ "$model" != opencode/*free* ]] && emit_model "$model"; then
+      emitted=1
+      [[ "$PRINT_ALL" -eq 0 ]] && return 0
+    elif has_model "$model" && [[ "$model" == opencode/*free* ]] && free_is_usable "$model" && emit_model "$model"; then
       emitted=1
       [[ "$PRINT_ALL" -eq 0 ]] && return 0
     fi
@@ -76,27 +100,27 @@ mistral_chain=(
 
 case "$TASK_TYPE" in
   scout)
-    default_chain=("${free_chain[@]}" "${airouter_chain[@]}")
+    default_chain=("${free_chain[@]}" "${usable_free_chain[@]}" "${airouter_chain[@]}")
     limited_chain=("opencode-go/deepseek-v4-flash" "opencode-go/qwen3.6-plus")
     ;;
   bulk)
-    default_chain=("opencode/deepseek-v4-flash-free" "opencode/mimo-v2.5-free" "${airouter_chain[@]}")
+    default_chain=("opencode/deepseek-v4-flash-free" "opencode/mimo-v2.5-free" "${usable_free_chain[@]}" "${airouter_chain[@]}")
     limited_chain=("opencode-go/deepseek-v4-flash")
     ;;
   code-small)
-    default_chain=("opencode/north-mini-code-free" "airouter/Qwen3.6" "airouter/DeepSeek-V4-Flash")
+    default_chain=("opencode/north-mini-code-free" "${usable_free_chain[@]}" "airouter/Qwen3.6" "airouter/DeepSeek-V4-Flash")
     limited_chain=("opencode-go/kimi-k2.7-code" "opencode-go/qwen3.7-plus" "opencode-go/deepseek-v4-flash")
     ;;
   debug)
-    default_chain=("opencode/north-mini-code-free" "airouter/Qwen3.6" "opencode/deepseek-v4-flash-free")
+    default_chain=("opencode/north-mini-code-free" "${usable_free_chain[@]}" "airouter/Qwen3.6" "opencode/deepseek-v4-flash-free")
     limited_chain=("opencode-go/qwen3.7-plus" "opencode-go/deepseek-v4-pro" "opencode-go/kimi-k2.7-code")
     ;;
   review)
-    default_chain=("opencode/nemotron-3-ultra-free" "airouter/Qwen3.6" "airouter/DeepSeek-V4-Flash")
+    default_chain=("opencode/nemotron-3-ultra-free" "${usable_free_chain[@]}" "airouter/Qwen3.6" "airouter/DeepSeek-V4-Flash")
     limited_chain=("opencode-go/qwen3.7-max" "opencode-go/qwen3.7-plus")
     ;;
   closure-validation)
-    default_chain=("opencode/nemotron-3-ultra-free" "airouter/Qwen3.6" "airouter/DeepSeek-V4-Flash")
+    default_chain=("opencode/nemotron-3-ultra-free" "${usable_free_chain[@]}" "airouter/Qwen3.6" "airouter/DeepSeek-V4-Flash")
     limited_chain=("opencode-go/qwen3.7-max" "opencode-go/qwen3.7-plus" "opencode-go/deepseek-v4-pro")
     ;;
   *)

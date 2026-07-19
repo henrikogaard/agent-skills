@@ -111,9 +111,9 @@ class ControlCliTests(unittest.TestCase):
             history.write_text(
                 "\n".join(
                     [
-                        json.dumps({"model": "fake/a", "result": "accepted", "duration_seconds": 2}),
+                        json.dumps({"model": "fake/a", "result": "worker-complete", "duration_seconds": 2}),
                         json.dumps({"model": "fake/a", "result": "failed", "duration_seconds": 4}),
-                        json.dumps({"model": "fake/b", "result": "accepted", "duration_seconds": 1}),
+                        json.dumps({"model": "fake/b", "result": "approved", "duration_seconds": 1}),
                     ]
                 )
                 + "\n"
@@ -124,7 +124,8 @@ class ControlCliTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             rows = {row["model"]: row for row in json.loads(result.stdout)}
             self.assertEqual(rows["fake/a"]["runs"], 2)
-            self.assertEqual(rows["fake/a"]["acceptance_rate"], 0.5)
+            self.assertEqual(rows["fake/a"]["completion_rate"], 0.5)
+            self.assertNotIn("acceptance_rate", rows["fake/a"])
             self.assertEqual(rows["fake/a"]["task_type"], "unknown")
 
     def test_concurrency_limit_and_external_cancel(self):
@@ -236,11 +237,18 @@ class ControlCliTests(unittest.TestCase):
             old = root / "old"
             recent = root / "recent"
             active = root / "active"
-            for path, state in ((old, "accepted"), (recent, "accepted"), (active, "running")):
+            pending = root / "pending-review"
+            for path, state in (
+                (old, "accepted"),
+                (recent, "approved"),
+                (active, "running"),
+                (pending, "codex-review-required"),
+            ):
                 path.mkdir()
                 (path / "state.json").write_text(json.dumps({"run_id": path.name, "state": state}))
             old_time = time.time() - 30 * 86400
             os.utime(old / "state.json", (old_time, old_time))
+            os.utime(pending / "state.json", (old_time, old_time))
 
             result = run_cli("prune", "--state-root", str(root), "--days", "14")
 
@@ -248,6 +256,7 @@ class ControlCliTests(unittest.TestCase):
             self.assertFalse(old.exists())
             self.assertTrue(recent.exists())
             self.assertTrue(active.exists())
+            self.assertTrue(pending.exists())
 
 
 class WorktreeCliTests(unittest.TestCase):

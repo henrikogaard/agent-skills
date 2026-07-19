@@ -1,6 +1,7 @@
 {
   "issue_url": "https://github.com/owner/repo/issues/123",
   "goal": "One precise, bounded objective",
+  "risk_tier": "low | medium | high",
   "acceptance_criteria": [
     "First observable criterion",
     "Second observable criterion"
@@ -18,5 +19,6 @@
   "verification": [
     "focused test command",
     "typecheck command"
-  ]
+  ],
+  "residual_risks": "none or one concise risk statement"
 }

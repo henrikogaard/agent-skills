@@ -17,6 +17,7 @@ from typing import Any, Iterable
 
 
 TERMINAL_STATES = {
+    "approved",
     "accepted",
     "rejected",
     "blocked",
@@ -25,6 +26,23 @@ TERMINAL_STATES = {
     "timeout",
     "idle-timeout",
     "resource-limit",
+}
+
+FREE_MODEL_TASK_FIT = {
+    "north-mini-code-free": {"code-small", "debug", "review"},
+    "deepseek-v4-flash-free": {"scout", "bulk", "review", "closure-validation"},
+    "nemotron-3-ultra-free": {"scout", "review", "closure-validation"},
+    "mimo-v2.5-free": {"scout", "bulk", "review", "closure-validation"},
+    "hy3-free": {"scout", "bulk", "review"},
+}
+
+HARD_MODEL_FAILURES = {
+    "rejected",
+    "failed",
+    "timeout",
+    "idle-timeout",
+    "resource-limit",
+    "died",
 }
 
 
@@ -58,6 +76,64 @@ def dedupe(values: Iterable[str]) -> list[str]:
     return result
 
 
+def free_opencode_models(models: Iterable[str]) -> list[str]:
+    """Return every currently visible OpenCode model explicitly marked free."""
+    return dedupe(
+        model.strip()
+        for model in models
+        if re.match(r"(?i)^opencode/.*free", model.strip())
+    )
+
+
+def assess_free_models(
+    models: Iterable[str], task_type: str, history_path: Path | None = None
+) -> list[dict[str, Any]]:
+    """Classify live free routes conservatively for one delegated task type."""
+    history: dict[str, list[str]] = {}
+    if history_path is not None and history_path.exists():
+        for line in history_path.read_text(encoding="utf-8", errors="replace").splitlines():
+            try:
+                record = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            model = record.get("model")
+            if not isinstance(model, str) or record.get("task_type") != task_type:
+                continue
+            history.setdefault(model, []).append(str(record.get("result", "unknown")))
+
+    assessed = []
+    for model in free_opencode_models(models):
+        slug = model.split("/", 1)[1].lower()
+        outcomes = history.get(model, [])
+        hard_failures = sum(result in HARD_MODEL_FAILURES for result in outcomes[-5:])
+        successes = sum(result in {"worker-complete", "accepted", "approved"} for result in outcomes)
+        known_fit = FREE_MODEL_TASK_FIT.get(slug)
+        if hard_failures >= 3 and successes == 0:
+            status = "excluded"
+            reason = f"{hard_failures} recent comparable hard failures"
+        elif known_fit is None:
+            status = "probe-only"
+            reason = "new free model requires a bounded smoke run"
+        elif task_type not in known_fit:
+            status = "probe-only"
+            reason = f"known model is not established for {task_type}"
+        else:
+            status = "usable"
+            reason = "live, task-fit free route"
+        assessed.append(
+            {
+                "model": model,
+                "status": status,
+                "reason": reason,
+                "task_type": task_type,
+                "runs": len(outcomes),
+                "successes": successes,
+                "hard_failures": hard_failures,
+            }
+        )
+    return assessed
+
+
 def rank_models_by_history(
     models: list[str],
     history_path: Path,
@@ -76,7 +152,9 @@ def rank_models_by_history(
             if model not in stats or record.get("task_type") != task_type:
                 continue
             stats[model]["runs"] += 1
-            stats[model]["accepted"] += int(record.get("result") == "accepted")
+            stats[model]["accepted"] += int(
+                record.get("result") in {"accepted", "worker-complete", "approved"}
+            )
 
     def sort_key(item: tuple[int, str]) -> tuple[float, float, int]:
         index, model = item
@@ -172,7 +250,7 @@ def parse_report(text: str, expected_model: str) -> ParsedReport:
     elif status in {"partial", "blocked"} or any(item["status"] == "unknown" for item in acceptance):
         decision = "needs-follow-up"
     else:
-        decision = "accepted"
+        decision = "worker-complete"
 
     return ParsedReport(
         valid=valid,
