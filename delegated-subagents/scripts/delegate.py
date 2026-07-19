@@ -9,6 +9,7 @@ import fcntl
 import hashlib
 import json
 import os
+import re
 import shutil
 import signal
 import subprocess
@@ -244,11 +245,86 @@ def append_history(state_root: Path, record: dict[str, Any]) -> None:
         fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
 
+def _model_variant(value: str | None) -> str | None:
+    if not value:
+        return None
+    parts = [part.lower() for part in re.split(r"[\s._-]+", value.strip()) if part]
+    while parts and parts[-1] in {"beta", "preview"}:
+        parts.pop()
+    return "-".join(parts) or None
+
+
+def model_identity(tool: str, model: str) -> dict[str, str | None]:
+    raw_model = model.strip() or "unknown"
+    slug = raw_model.split("/", 1)[-1]
+    swe_match = re.fullmatch(r"swe[\s._-]*1[\s._-]*7(?:[\s._-]+(.+))?", slug, re.IGNORECASE)
+    if swe_match:
+        family = "swe-1.7"
+        variant = _model_variant(swe_match.group(1))
+    else:
+        composer_match = re.fullmatch(
+            r"composer[\s._-]*([0-9]+(?:[._-][0-9]+)*)(?:[\s._-]+(.+))?",
+            slug,
+            re.IGNORECASE,
+        )
+        if composer_match:
+            version = composer_match.group(1).replace("_", ".").replace("-", ".")
+            family = f"composer-{version}"
+            variant = _model_variant(composer_match.group(2))
+        else:
+            lowered = slug.lower()
+            family = next(
+                (
+                    prefix
+                    for prefix in ("deepseek", "nemotron", "north", "mimo", "hy3", "qwen", "mistral")
+                    if lowered.startswith(prefix)
+                ),
+                lowered.removesuffix("-free").removesuffix("-fast"),
+            )
+            variant = None
+    return {
+        "raw_model": raw_model,
+        "model_family": family,
+        "display_name": raw_model,
+        "variant": variant,
+    }
+
+
+def resolve_devin_model(requested: str, configured: str | None, observed: list[str]) -> str:
+    requested_identity = model_identity("devin", requested)
+    family = requested_identity["model_family"]
+    if family != "swe-1.7" or requested_identity["variant"] is not None:
+        return requested
+    if configured and model_identity("devin", configured)["model_family"] == family:
+        return configured
+    for candidate in observed:
+        if model_identity("devin", candidate)["model_family"] == family:
+            return candidate
+    return requested
+
+
+def observed_devin_models(history_path: Path) -> list[str]:
+    if not history_path.is_file():
+        return []
+    observed: list[str] = []
+    for line in reversed(history_path.read_text(encoding="utf-8", errors="replace").splitlines()):
+        try:
+            record = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if record.get("tool") != "devin" or record.get("result") not in {"worker-complete", "approved", "accepted"}:
+            continue
+        model = record.get("model")
+        if isinstance(model, str) and model_identity("devin", model)["model_family"] == "swe-1.7":
+            observed.append(model)
+    return dedupe(observed)
+
+
 def billing_class(tool: str, model: str) -> str:
     lowered = model.lower()
     if tool == "cursor":
         return "subscription"
-    if "swe-1.7" in lowered or lowered.startswith("airouter/"):
+    if (tool == "devin" and model_identity(tool, model)["model_family"] == "swe-1.7") or lowered.startswith("airouter/"):
         return "free"
     if lowered.startswith("opencode/") and "free" in lowered:
         return "free"
@@ -765,7 +841,29 @@ def _add_usage(totals: dict[str, int | float], usage: dict[str, Any]) -> None:
             totals[field] += value
 
 
-def usage_report_command(args: argparse.Namespace) -> int:
+def _resolved_attempt_usage(
+    tool: str,
+    model: str,
+    attempt: dict[str, Any],
+    attempt_count: int,
+    run_dir: Path,
+) -> dict[str, Any]:
+    usage = attempt.get("usage")
+    if isinstance(usage, dict):
+        return usage
+    if tool == "devin" and attempt_count != 1:
+        return {}
+    log_text = ""
+    log_value = attempt.get("log")
+    if isinstance(log_value, str):
+        try:
+            log_text = Path(log_value).read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            pass
+    return capture_attempt_usage(tool, model, log_text, run_dir)
+
+
+def build_usage_report(args: argparse.Namespace) -> dict[str, Any]:
     selected: list[tuple[Path, dict[str, Any]]] = []
     for run_dir, state in iter_states(args.state_root):
         if args.run and state.get("run_id", run_dir.name) != args.run:
@@ -788,16 +886,7 @@ def usage_report_command(args: argparse.Namespace) -> int:
                 continue
             coverage["attempts"] += 1
             model = str(attempt.get("model", "unknown"))
-            usage = attempt.get("usage")
-            if not isinstance(usage, dict) and (tool != "devin" or len(attempts) == 1):
-                log_text = ""
-                log_value = attempt.get("log")
-                if isinstance(log_value, str):
-                    try:
-                        log_text = Path(log_value).read_text(encoding="utf-8", errors="replace")
-                    except OSError:
-                        pass
-                usage = capture_attempt_usage(tool, model, log_text, run_dir)
+            usage = _resolved_attempt_usage(tool, model, attempt, len(attempts), run_dir)
             if not isinstance(usage, dict) or _number(usage.get("total_tokens")) is None:
                 coverage["unavailable"] += 1
                 continue
@@ -812,6 +901,7 @@ def usage_report_command(args: argparse.Namespace) -> int:
                     "date": date,
                     "tool": tool,
                     "model": model,
+                    **model_identity(tool, model),
                     "task_type": task_type,
                     "billing_class": classification,
                     "attempts": 0,
@@ -871,9 +961,16 @@ def usage_report_command(args: argparse.Namespace) -> int:
             ):
                 report["delegated_share"] = round(external_total / (external_total + codex_total), 6)
 
+    return report
+
+
+def usage_report_command(args: argparse.Namespace) -> int:
+    report = build_usage_report(args)
     if args.json:
         print(json.dumps(report, indent=2, sort_keys=True))
         return 0
+    coverage = report["coverage"]
+    external = report["external"]
     print("DATE\tPROVIDER/MODEL\tTASK\tBILLING\tATTEMPTS\tINPUT\tCACHE_READ\tOUTPUT\tREASONING\tTOTAL\tREPORTED_USD")
     for row in report["groups"]:
         print(
@@ -885,6 +982,228 @@ def usage_report_command(args: argparse.Namespace) -> int:
         f"coverage={coverage['measured']}/{coverage['attempts']} measured "
         f"external_total={external['total_tokens']} delegated_share={report['delegated_share']}"
     )
+    return 0
+
+
+def _safe_dashboard_label(value: Any, maximum: int = 120) -> str:
+    if not isinstance(value, str):
+        return "unknown"
+    stripped = value.strip()
+    if len(stripped) > maximum or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9 ._:/+@-]*", stripped):
+        return "unknown"
+    return stripped
+
+
+def _safe_attempt_rows(state_root: Path) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for run_dir, state in iter_states(state_root):
+        provider = _safe_dashboard_label(state.get("tool"))
+        task_type = _safe_dashboard_label(state.get("task_type"))
+        result = _safe_dashboard_label(state.get("state") or state.get("decision"))
+        attempts = state.get("attempts", [])
+        if not isinstance(attempts, list):
+            continue
+        for attempt in attempts:
+            if not isinstance(attempt, dict):
+                continue
+            raw_model = _safe_dashboard_label(attempt.get("model"))
+            identity = model_identity(provider, raw_model)
+            usage = _resolved_attempt_usage(provider, raw_model, attempt, len(attempts), run_dir)
+            total_tokens = _number(usage.get("total_tokens"))
+            timestamp = attempt.get("started_at") or state.get("created_at")
+            row: dict[str, Any] = {
+                "timestamp": timestamp if isinstance(timestamp, str) else None,
+                "provider": provider,
+                **identity,
+                "task_type": task_type,
+                "result": _safe_dashboard_label(attempt.get("state") or attempt.get("decision") or result),
+                "usage_available": total_tokens is not None,
+                "billing_class": str(usage.get("billing_class") or billing_class(provider, raw_model)),
+            }
+            for field in USAGE_TOTAL_FIELDS:
+                row[field] = _number(usage.get(field))
+            actual_charge = _number(usage.get("actual_charge_usd"))
+            row["actual_charge_usd"] = actual_charge
+            rows.append(row)
+    return rows
+
+
+def build_dashboard_snapshot(args: argparse.Namespace) -> dict[str, Any]:
+    report_args = argparse.Namespace(
+        state_root=args.state_root,
+        run=None,
+        codex_session=args.codex_session,
+        json=True,
+    )
+    report = build_usage_report(report_args)
+    attempts = _safe_attempt_rows(args.state_root)
+    groups: dict[tuple[Any, ...], dict[str, Any]] = {}
+    trends: dict[str, dict[str, Any]] = {}
+    timestamps = [row["timestamp"] for row in attempts if isinstance(row.get("timestamp"), str)]
+    for attempt in attempts:
+        date = str(attempt["timestamp"])[:10] if attempt["timestamp"] else "unknown"
+        key = (
+            date,
+            attempt["provider"],
+            attempt["raw_model"],
+            attempt["model_family"],
+            attempt["variant"],
+            attempt["task_type"],
+            attempt["result"],
+            attempt["billing_class"],
+        )
+        if key not in groups:
+            groups[key] = {
+                "date": date,
+                "provider": attempt["provider"],
+                "raw_model": attempt["raw_model"],
+                "model_family": attempt["model_family"],
+                "display_name": attempt["display_name"],
+                "variant": attempt["variant"],
+                "task_type": attempt["task_type"],
+                "result": attempt["result"],
+                "billing_class": attempt["billing_class"],
+                "attempts": 0,
+                "measured": 0,
+                "actual_charge_usd_known": 0.0,
+                "actual_charge_unknown_attempts": 0,
+                **_empty_totals(),
+            }
+        group = groups[key]
+        group["attempts"] += 1
+        group["measured"] += int(attempt["usage_available"])
+        _add_usage(group, attempt)
+        actual_charge = attempt["actual_charge_usd"]
+        if actual_charge is None:
+            group["actual_charge_unknown_attempts"] += int(attempt["usage_available"])
+        else:
+            group["actual_charge_usd_known"] += float(actual_charge)
+        if date not in trends:
+            trends[date] = {
+                "date": date,
+                "attempts": 0,
+                "measured": 0,
+                "unavailable": 0,
+                **_empty_totals(),
+            }
+        trend = trends[date]
+        trend["attempts"] += 1
+        trend["measured"] += int(attempt["usage_available"])
+        trend["unavailable"] += int(not attempt["usage_available"])
+        _add_usage(trend, attempt)
+
+    coverage = report["coverage"]
+    attempt_count = int(coverage["attempts"])
+    measured_count = int(coverage["measured"])
+    external = report["external"]
+    codex = report["codex"] if isinstance(report.get("codex"), dict) else None
+    snapshot = {
+        "schema_version": 1,
+        "generated_at": report["generated_at"],
+        "window": {
+            "from": min(timestamps, key=_parse_time) if timestamps else None,
+            "to": max(timestamps, key=_parse_time) if timestamps else None,
+        },
+        "summary": {
+            "runs": report["runs"],
+            "attempts": attempt_count,
+            "measured": measured_count,
+            "unavailable": int(coverage["unavailable"]),
+            "capture_coverage": round(measured_count / attempt_count, 6) if attempt_count else None,
+            "delegated_input_tokens": external["input_tokens"],
+            "delegated_output_tokens": external["output_tokens"],
+            "delegated_reasoning_tokens": external["reasoning_tokens"],
+            "delegated_total_tokens": external["total_tokens"],
+            "cache_read_tokens": external["cache_read_tokens"],
+            "actual_charge_usd_known": external["actual_charge_usd_known"],
+            "actual_charge_unknown_attempts": external["actual_charge_unknown_attempts"],
+            "codex_total_tokens": codex.get("total_tokens") if codex else None,
+            "delegated_share": report["delegated_share"],
+        },
+        "groups": sorted(groups.values(), key=lambda row: tuple(str(value) for value in key_fields(row))),
+        "trends": sorted(trends.values(), key=lambda row: row["date"]),
+        "attempts": sorted(attempts, key=lambda row: str(row["timestamp"] or ""), reverse=True),
+        "coverage": coverage,
+    }
+    return snapshot
+
+
+def key_fields(row: dict[str, Any]) -> tuple[Any, ...]:
+    return (
+        row.get("date"),
+        row.get("provider"),
+        row.get("model_family"),
+        row.get("raw_model"),
+        row.get("task_type"),
+        row.get("result"),
+        row.get("billing_class"),
+    )
+
+
+def validate_dashboard_snapshot(snapshot: dict[str, Any]) -> None:
+    expected_fields = {
+        "schema_version",
+        "generated_at",
+        "window",
+        "summary",
+        "groups",
+        "trends",
+        "attempts",
+        "coverage",
+    }
+    if set(snapshot) != expected_fields:
+        raise ValueError("unexpected dashboard fields")
+    if snapshot.get("schema_version") != 1:
+        raise ValueError("unsupported dashboard schema version")
+    summary = snapshot.get("summary")
+    coverage = snapshot.get("coverage")
+    groups = snapshot.get("groups")
+    attempts = snapshot.get("attempts")
+    if not isinstance(summary, dict) or not isinstance(coverage, dict):
+        raise ValueError("dashboard summary and coverage must be objects")
+    if not isinstance(groups, list) or not isinstance(attempts, list):
+        raise ValueError("dashboard groups and attempts must be arrays")
+    attempt_total = sum(int(row.get("attempts", 0)) for row in groups if isinstance(row, dict))
+    measured_total = sum(int(row.get("measured", 0)) for row in groups if isinstance(row, dict))
+    if attempt_total != summary.get("attempts") or len(attempts) != summary.get("attempts"):
+        raise ValueError("inconsistent dashboard attempt totals")
+    if measured_total != summary.get("measured"):
+        raise ValueError("inconsistent dashboard measured totals")
+    if coverage != {
+        "attempts": summary.get("attempts"),
+        "measured": summary.get("measured"),
+        "unavailable": summary.get("unavailable"),
+    }:
+        raise ValueError("inconsistent dashboard coverage totals")
+    if sum(int(bool(row.get("usage_available"))) for row in attempts if isinstance(row, dict)) != summary.get("measured"):
+        raise ValueError("inconsistent dashboard attempt coverage")
+    for group_field, summary_field in (
+        ("total_tokens", "delegated_total_tokens"),
+        ("input_tokens", "delegated_input_tokens"),
+        ("output_tokens", "delegated_output_tokens"),
+        ("reasoning_tokens", "delegated_reasoning_tokens"),
+        ("cache_read_tokens", "cache_read_tokens"),
+    ):
+        grouped_total = sum(
+            value
+            for row in groups
+            if isinstance(row, dict)
+            for value in [_number(row.get(group_field))]
+            if value is not None
+        )
+        if grouped_total != summary.get(summary_field):
+            raise ValueError(f"inconsistent dashboard {group_field} totals")
+
+
+def dashboard_export_command(args: argparse.Namespace) -> int:
+    try:
+        snapshot = build_dashboard_snapshot(args)
+        validate_dashboard_snapshot(snapshot)
+        atomic_write_json(args.output.expanduser().resolve(), snapshot)
+    except (OSError, TypeError, ValueError) as error:
+        print(f"dashboard export failed: {error}", file=sys.stderr)
+        return 2
+    print(args.output.expanduser().resolve())
     return 0
 
 
@@ -957,11 +1276,7 @@ def review_diff(state: dict[str, Any]) -> tuple[str, str]:
 
 
 def model_family(model: str) -> str:
-    slug = model.split("/", 1)[-1].lower()
-    for prefix in ("composer", "swe", "deepseek", "nemotron", "north", "mimo", "hy3", "qwen", "mistral"):
-        if slug.startswith(prefix):
-            return prefix
-    return slug.removesuffix("-free").removesuffix("-fast")
+    return str(model_identity("", model)["model_family"])
 
 
 def refresh_approval_state(run_dir: Path, state: dict[str, Any]) -> None:
@@ -1292,6 +1607,11 @@ def run_command(args: argparse.Namespace) -> int:
     if args.tool == "opencode" and any(model.startswith("omlx/") for model in models):
         print("local omlx models are disabled for delegated subagents", file=sys.stderr)
         return 2
+    if args.tool == "devin":
+        history_path = args.state_root.parent / "model-history.jsonl"
+        configured_model = os.environ.get("DEVIN_SWE_MODEL")
+        observed_models = observed_devin_models(history_path)
+        models = dedupe(resolve_devin_model(model, configured_model, observed_models) for model in models)
     models = rank_models_by_history(
         models,
         args.state_root.parent / "model-history.jsonl",
@@ -1392,6 +1712,7 @@ def run_command(args: argparse.Namespace) -> int:
         attempt: dict[str, Any] = {
             "number": number,
             "model": model,
+            **model_identity(args.tool, model),
             "state": "starting",
             "started_at": utc_now(),
             "log": str(log_path),
@@ -1638,6 +1959,12 @@ def build_parser() -> argparse.ArgumentParser:
     usage.add_argument("--codex-session", type=Path, help="optional Codex rollout JSONL for a supervising-session delta")
     usage.add_argument("--json", action="store_true")
     usage.set_defaults(func=usage_report_command)
+
+    dashboard = subparsers.add_parser("dashboard-export", help="write a sanitized static dashboard snapshot")
+    dashboard.add_argument("--state-root", type=Path, default=DEFAULT_STATE_ROOT)
+    dashboard.add_argument("--codex-session", type=Path, help="optional Codex rollout JSONL for a supervising-session delta")
+    dashboard.add_argument("--output", type=Path, required=True)
+    dashboard.set_defaults(func=dashboard_export_command)
 
     models = subparsers.add_parser("models", help="refresh the live OpenCode model snapshot")
     models.add_argument("--state-root", type=Path, default=DEFAULT_STATE_ROOT)

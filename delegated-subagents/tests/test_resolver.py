@@ -40,7 +40,7 @@ class ResolverTests(unittest.TestCase):
         self.assertIn("## Complexity Gate", text)
         self.assertIn("Native Codex GPT subagent", text)
         self.assertIn("## Weighted External Model Matrix", text)
-        self.assertIn("Devin/SWE 1.7", text)
+        self.assertIn("Devin/SWE-1.7 family", text)
 
     def test_devin_runner_defaults_to_one_attempt(self):
         text = DEVIN_SPAWN.read_text(encoding="utf-8")

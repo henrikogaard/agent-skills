@@ -63,8 +63,8 @@ smoke run succeeds.
 | Task type | Primary | External polish/review | Fallback | Cost |
 |---|---|---|---|---|
 | `scout`, inventory, docs sweep | Best live usable `opencode/*free*` | Another free model only if evidence conflicts | `airouter/Qwen3.6` | Free |
-| Simple docs or mechanical edit | Devin/SWE 1.7 | Best live usable free reviewer | `composer-2.5-fast` | Free first |
-| Bounded bug fix or small feature | Devin/SWE 1.7 after smoke success | `composer-2.5-fast` or independent usable free reviewer | `composer-2.5` | Free first |
+| Simple docs or mechanical edit | Devin/SWE-1.7 family | Best live usable free reviewer | `composer-2.5-fast` | Free first |
+| Bounded bug fix or small feature | Devin/SWE-1.7 family after smoke success | `composer-2.5-fast` or independent usable free reviewer | `composer-2.5` | Free first |
 | Bounded debugging with unclear cause | `composer-2.5` | SWE 1.7 or Mistral Medium | Mistral Medium | Subscription |
 | Approved complex multi-file slice | `composer-2.5` | SWE 1.7 or Mistral Medium from another family | Return to Codex | Subscription |
 | Independent pre-review | Different family: usable free model, SWE 1.7, or Composer Fast | Not applicable | Mistral Medium | Cheapest fit |
@@ -74,7 +74,7 @@ smoke run succeeds.
 
 Cost facts for this installation:
 
-- Devin `swe-1.7`, `airouter/*`, and live `opencode/*free*` routes are free.
+- Devin's SWE-1.7 family, `airouter/*`, and live `opencode/*free*` routes are free.
 - Cursor `composer-2.5` and `composer-2.5-fast` use the Cursor subscription.
 - Mistral routes use the Mistral subscription.
 - Main/native Codex uses scarce OpenAI subscription capacity; reserve it for
@@ -107,6 +107,8 @@ context into the Codex task. Request only narrow failure excerpts when needed.
 
 ```bash
 # Free implementation
+# Set DEVIN_SWE_MODEL to the current exact provider name, for example
+# "SWE-1.7 Max Beta". The family alias falls back to recent successful history.
 scripts/spawn-devin.sh --task code-small --model swe-1.7 \
   --prompt-file /abs/prompt.txt --manifest /abs/manifest.json \
   --workdir /abs/repo --permission-profile edit
@@ -160,6 +162,9 @@ scripts/usage-report.sh --run <run-id> --json
 
 # Compare selected runs with the supervising Codex session window
 scripts/usage-report.sh --codex-session /abs/path/to/codex-rollout.jsonl --json
+
+# Write the allowlisted static snapshot used by the private dashboard
+scripts/dashboard-export.sh --output /abs/path/to/delegated-usage.json
 ```
 
 The optional Codex comparison uses cumulative token snapshots surrounding the
@@ -167,7 +172,9 @@ delegated run window. Treat its `delegated_share` as a workflow measurement:
 the Codex delta includes all coordination and review activity in that session
 window. The reporter reads existing Devin exports without modifying old state;
 other old runs without structured usage remain unavailable and reduce capture
-coverage.
+coverage. The dashboard exporter never invokes a model and publishes only
+allowlisted aggregate and attempt facts; prompts, transcripts, repository
+paths, session identifiers, command lines, and raw errors are excluded.
 
 ## Safety And Operations
 
@@ -186,6 +193,7 @@ assessment rules.
 
 - `scripts/delegate.py`: runner, state, model inventory, review packet, and review gate.
 - `scripts/usage-report.sh`: worker-token, billing-class, and optional Codex-delta report.
+- `scripts/dashboard-export.sh`: sanitized, versioned static dashboard snapshot.
 - `scripts/spawn-opencode.sh`, `spawn-devin.sh`, `spawn-cursor.sh`: provider launchers.
 - `scripts/model-policy.py`, `resolve-model.sh`: live free-model usability and routing.
 - `references/runtime-contract.md`: state, review, process, and worktree contract.

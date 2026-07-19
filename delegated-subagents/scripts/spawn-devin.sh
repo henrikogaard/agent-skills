@@ -43,10 +43,12 @@ while [[ $# -gt 0 ]]; do
     -h|--help)
       cat <<'USAGE'
 Usage: spawn-devin.sh --prompt-file file [--manifest file] [--task long-autonomous]
-       [--workdir repo] [--model swe-1.7] [--models comma,separated,chain]
+       [--workdir repo] [--model swe-1.7-family-or-exact-name] [--models comma,separated,chain]
        [--permission-profile read-only|edit] [--isolation managed|none]
 
-The subagent is non-interactive. Codex owns approvals, status, review, and acceptance.
+Set DEVIN_SWE_MODEL to the current exact provider name when --model uses the
+swe-1.7 family alias. The subagent is non-interactive. Codex owns approvals,
+status, review, and acceptance.
 USAGE
       exit 0
       ;;

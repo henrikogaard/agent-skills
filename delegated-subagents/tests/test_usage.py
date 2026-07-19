@@ -56,6 +56,47 @@ class UsageParsingTests(unittest.TestCase):
             self.assertEqual(usage["billing_class"], "free")
             self.assertEqual(usage["actual_charge_usd"], 0)
 
+    def test_devin_model_identity_preserves_dynamic_variants(self):
+        max_model = self.delegate.model_identity("devin", "SWE-1.7 Max Beta")
+        lightning_model = self.delegate.model_identity("devin", "SWE 1_7 Lightning Beta")
+        future_model = self.delegate.model_identity("devin", "swe-1.7 Horizon")
+
+        self.assertEqual(
+            max_model,
+            {
+                "raw_model": "SWE-1.7 Max Beta",
+                "model_family": "swe-1.7",
+                "display_name": "SWE-1.7 Max Beta",
+                "variant": "max",
+            },
+        )
+        self.assertEqual(lightning_model["model_family"], "swe-1.7")
+        self.assertEqual(lightning_model["variant"], "lightning")
+        self.assertEqual(future_model["model_family"], "swe-1.7")
+        self.assertEqual(future_model["variant"], "horizon")
+
+    def test_dynamic_swe_family_is_free_for_this_installation(self):
+        self.assertEqual(self.delegate.billing_class("devin", "SWE-1.7 Max Beta"), "free")
+        self.assertEqual(self.delegate.billing_class("devin", "SWE 1_7 Lightning Beta"), "free")
+        self.assertEqual(self.delegate.billing_class("opencode", "swe-1.7-lookalike"), "unknown")
+
+    def test_devin_family_resolution_prefers_explicit_configured_then_observed(self):
+        observed = ["SWE-1.7 Lightning Beta", "SWE-1.7 Max Beta"]
+
+        self.assertEqual(
+            self.delegate.resolve_devin_model("SWE-1.7 Horizon", "SWE-1.7 Max Beta", observed),
+            "SWE-1.7 Horizon",
+        )
+        self.assertEqual(
+            self.delegate.resolve_devin_model("swe-1.7", "SWE-1.7 Max Beta", observed),
+            "SWE-1.7 Max Beta",
+        )
+        self.assertEqual(
+            self.delegate.resolve_devin_model("swe-1.7", None, observed),
+            "SWE-1.7 Lightning Beta",
+        )
+        self.assertEqual(self.delegate.resolve_devin_model("swe-1.7", None, []), "swe-1.7")
+
     def test_opencode_sums_json_message_usage_and_preserves_nominal_cost(self):
         payload = {
             "role": "assistant",
@@ -255,6 +296,9 @@ class UsageReportTests(unittest.TestCase):
             report = json.loads(result.stdout)
             self.assertEqual(report["external"]["total_tokens"], 500)
             self.assertEqual(report["coverage"], {"attempts": 1, "measured": 1, "unavailable": 0})
+            self.assertEqual(report["groups"][0]["raw_model"], "swe-1.7")
+            self.assertEqual(report["groups"][0]["model_family"], "swe-1.7")
+            self.assertIsNone(report["groups"][0]["variant"])
             self.assertEqual(json.loads((run_dir / "state.json").read_text()), original)
 
     def test_report_aggregates_external_usage_and_optional_codex_share(self):

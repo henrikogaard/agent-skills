@@ -99,6 +99,12 @@ and classifies every current `opencode/*free*` route as `usable`, `probe-only`,
 or `excluded` for the requested task. Unknown free models require a bounded
 probe; three recent comparable hard failures exclude a route until reprobed.
 
+Devin routing uses `swe-1.7` as a stable family. An exact safe user request has
+priority, followed by `DEVIN_SWE_MODEL`, the most recently successful observed
+family variant, and finally the compatibility alias. State and reports retain
+the exact raw model plus the stable family and variant; provider names such as
+`SWE-1.7 Max Beta` and `SWE-1.7 Lightning Beta` do not require matrix changes.
+
 ## Operations
 
 ```bash
@@ -106,6 +112,7 @@ scripts/status.sh --json
 scripts/usage-report.sh --json
 scripts/usage-report.sh --run <run-id> --json
 scripts/usage-report.sh --codex-session /abs/path/to/codex-rollout.jsonl --json
+scripts/dashboard-export.sh --output /abs/path/to/delegated-usage.json
 scripts/cancel-run.sh <run-id>
 scripts/cleanup-run.sh --dry-run
 scripts/cleanup-run.sh
@@ -140,3 +147,11 @@ For historical runs without a normalized `usage` object, the reporter reads an
 existing Devin export and attempt log without mutating old state. Historical
 OpenCode or Cursor attempts without structured counters remain unavailable and
 are reflected in capture coverage.
+
+`dashboard-export` writes schema version 1 as an atomic, static JSON snapshot.
+It contains only timestamps, provider/model family and variant labels, task and
+result categories, billing class, aggregate counts, token counters, coverage,
+and optional Codex comparison totals. It excludes prompts, transcripts,
+repository/worktree paths, branches, run and session identifiers, commands,
+environment values, credentials, and raw errors. Unsafe categorical values are
+replaced with `unknown` rather than copied.
