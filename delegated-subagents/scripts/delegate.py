@@ -39,6 +39,17 @@ from runtime import (
 
 DEFAULT_STATE_ROOT = Path(os.environ.get("SUBAGENT_STATE_ROOT", "~/.codex/state/delegated-subagents/runs")).expanduser()
 ACTIVE_STATES = {"starting", "running", "cancelling"}
+DASHBOARD_TASK_TYPES = {
+    "bulk",
+    "closure-validation",
+    "code-complex",
+    "code-small",
+    "debug",
+    "long-autonomous",
+    "mechanical-edit",
+    "review",
+    "scout",
+}
 current_process: subprocess.Popen[bytes] | None = None
 current_identity: dict[str, Any] | None = None
 cancel_requested = False
@@ -955,11 +966,16 @@ def _safe_dashboard_label(value: Any, maximum: int = 120) -> str:
     return stripped
 
 
+def _safe_dashboard_task_type(value: Any) -> str:
+    task_type = _safe_dashboard_label(value)
+    return task_type if task_type in DASHBOARD_TASK_TYPES else "unknown"
+
+
 def _safe_attempt_rows(state_root: Path) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for run_dir, state in iter_states(state_root):
         provider = _safe_dashboard_label(state.get("tool"))
-        task_type = _safe_dashboard_label(state.get("task_type"))
+        task_type = _safe_dashboard_task_type(state.get("task_type"))
         result = _safe_dashboard_label(state.get("state") or state.get("decision"))
         attempts = state.get("attempts", [])
         if not isinstance(attempts, list):

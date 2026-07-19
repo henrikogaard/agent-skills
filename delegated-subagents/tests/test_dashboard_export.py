@@ -188,7 +188,7 @@ class DashboardExportTests(unittest.TestCase):
             run_dir.mkdir(parents=True)
             state = {
                 "tool": "devin\nPRIVATE_PROVIDER_VALUE",
-                "task_type": "review\nPRIVATE_TASK_VALUE",
+                "task_type": "auroradocs-492-startup-debug",
                 "state": "worker-complete\nPRIVATE_RESULT_VALUE",
                 "created_at": "2026-07-19T10:00:00+00:00",
                 "attempts": [
@@ -219,6 +219,7 @@ class DashboardExportTests(unittest.TestCase):
             snapshot = json.loads(output.read_text(encoding="utf-8"))
             serialized = json.dumps(snapshot)
             self.assertNotIn("PRIVATE_", serialized)
+            self.assertNotIn("auroradocs", serialized)
             self.assertEqual(snapshot["attempts"][0]["provider"], "unknown")
             self.assertEqual(snapshot["attempts"][0]["raw_model"], "unknown")
             self.assertEqual(snapshot["attempts"][0]["task_type"], "unknown")
