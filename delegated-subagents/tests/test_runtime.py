@@ -75,6 +75,21 @@ not-applicable
         self.assertFalse(report.valid)
         self.assertEqual(report.decision, "rejected")
 
+    def test_successful_worker_is_complete_but_not_approved(self):
+        text = """STATUS: success
+MODEL: provider/model
+TASK_TYPE: code-small
+REPO: /tmp/repo
+ACCEPTANCE_CRITERIA:
+- [pass] focused change -> tests passed
+CLOSURE_RECOMMENDATION:
+ready-for-review
+"""
+        report = self.runtime.parse_report(text, expected_model="provider/model")
+
+        self.assertTrue(report.valid)
+        self.assertEqual(report.decision, "worker-complete")
+
 
 class RoutingTests(unittest.TestCase):
     def setUp(self):
@@ -97,7 +112,7 @@ class RoutingTests(unittest.TestCase):
             history = Path(root) / "history.jsonl"
             records = []
             records.extend({"model": "a/model", "task_type": "review", "result": "failed"} for _ in range(3))
-            records.extend({"model": "b/model", "task_type": "review", "result": "accepted"} for _ in range(3))
+            records.extend({"model": "b/model", "task_type": "review", "result": "worker-complete"} for _ in range(3))
             history.write_text("\n".join(json.dumps(record) for record in records) + "\n")
             ranked = self.runtime.rank_models_by_history(
                 ["a/model", "b/model", "c/model"], history, "review", preserve_first=False
@@ -107,6 +122,50 @@ class RoutingTests(unittest.TestCase):
             )
             self.assertEqual(ranked[0], "b/model")
             self.assertEqual(pinned[0], "a/model")
+
+    def test_discovers_every_visible_free_opencode_model(self):
+        models = [
+            "opencode/north-mini-code-free",
+            "opencode/a-new-capable-free",
+            "airouter/Qwen3.6",
+            "opencode/paid-model",
+        ]
+
+        self.assertEqual(
+            self.runtime.free_opencode_models(models),
+            ["opencode/north-mini-code-free", "opencode/a-new-capable-free"],
+        )
+
+    def test_free_models_are_classified_by_task_fit_and_history(self):
+        with tempfile.TemporaryDirectory() as root:
+            history = Path(root) / "history.jsonl"
+            history.write_text(
+                "\n".join(
+                    json.dumps(
+                        {
+                            "model": "opencode/north-mini-code-free",
+                            "task_type": "code-small",
+                            "result": "rejected",
+                        }
+                    )
+                    for _ in range(3)
+                )
+                + "\n"
+            )
+            assessed = self.runtime.assess_free_models(
+                [
+                    "opencode/north-mini-code-free",
+                    "opencode/deepseek-v4-flash-free",
+                    "opencode/brand-new-free",
+                ],
+                task_type="code-small",
+                history_path=history,
+            )
+
+            by_model = {item["model"]: item for item in assessed}
+            self.assertEqual(by_model["opencode/north-mini-code-free"]["status"], "excluded")
+            self.assertEqual(by_model["opencode/deepseek-v4-flash-free"]["status"], "probe-only")
+            self.assertEqual(by_model["opencode/brand-new-free"]["status"], "probe-only")
 
 
 class StateAndProcessTests(unittest.TestCase):

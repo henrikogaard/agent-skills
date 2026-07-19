@@ -1,89 +1,78 @@
 # Delegated Subagent Model Matrix
 
-Revise this file frequently. Free model names and provider availability drift.
-Refresh the live machine-readable snapshot and review measured outcomes with:
+This is a task-fit policy, not a static availability list. Before every
+OpenCode routing decision run:
 
 ```bash
-scripts/refresh-models.sh --json
-scripts/model-scorecard.sh --json
+scripts/refresh-models.sh --task <task> --json
 ```
 
-## User Hints
+The command calls `opencode models`, discovers every identifier matching
+`^opencode/.*free` case-insensitively, and evaluates current local outcomes.
 
-Honor explicit hints before default routing:
+## Cost Sources
 
-| Hint | Meaning |
-|---|---|
-| `only free OpenCode` | Use only `opencode/*-free` free models. |
-| `use aiRouter` | Prefer `airouter/*` models. |
-| `use Mistral Medium` | Prefer `mistral/mistral-medium-latest`. |
-| `allow OpenCodeGo` | Permit `opencode-go/*` fallback models. |
-| `do not use Devin` | Do not spawn Devin. |
-| `launch subagents with SWE 1.7` | Use `scripts/spawn-devin.sh --model swe-1.7`. |
-| explicit `provider/model` | Use that model first if visible. |
-
-## Cost Buckets
-
-| Bucket | Cost policy | Default use |
+| Route | Cost source | Default role |
 |---|---|---|
-| OpenCode free | Free; use at will | Scouting, inventory, docs, simple investigation. |
-| aiRouter | Fair-use constrained; retain the context cap | Short bounded fallback after free models. |
-| Mistral Medium | Account-dependent; use only when explicitly requested or justified | Stronger external pass, not a default complexity substitute. |
-| Devin/SWE 1.7 | Free for this account | Preferred bounded implementation, debugging, and focused multi-file edit worker. |
-| OpenCodeGo | Subscription-limited | Use when allowed or when free/aiRouter/Mistral/Devin are insufficient. |
-| GPT/Codex main | Scarce | Coordination, final review, verification, PR/release decisions. |
+| Devin `swe-1.7` | Free for this installation | Bounded implementation and repair after smoke success |
+| `opencode/*free*` | Free, verified from live model identifier | Scout and independent pre-review when task-fit |
+| `airouter/*` | Free for this installation | Scout/reviewer fallback |
+| Cursor Composer | Cursor subscription | Reliable implementation, debugging, repair, coordination |
+| Mistral | Mistral subscription | Independent strong fallback or explicit request |
+| Main/native Codex | OpenAI subscription | Scope, full final review, integration, decisions |
 
-## Current Free OpenCode Models
+## Task Routing
 
-Observed from the UI and `opencode models` on 2026-07-11:
+| Task | Primary | Polish/reviewer | Fallback |
+|---|---|---|---|
+| `scout`, `bulk` | Best live usable free OpenCode model | Another free model only for conflicting evidence | `airouter/Qwen3.6` |
+| Mechanical edit | SWE 1.7 | Live usable free reviewer | Composer 2.5 Fast |
+| `code-small` | SWE 1.7 after smoke success | Composer Fast or independent usable free reviewer | Composer 2.5 |
+| `debug` | Composer 2.5 | SWE 1.7 or Mistral Medium | Mistral Medium |
+| Approved complex slice | Composer 2.5 | Different-family SWE or Mistral review | Return to Codex |
+| `review` | Different family from implementer; prefer usable free, SWE, or Composer Fast | Not applicable | Mistral Medium |
+| `closure-validation` | Live usable free review/general model | Deterministic checklist | aiRouter Qwen |
+| Decomposable epic | Composer coordinates bounded free/SWE slices | Independent review per slice | Mistral only when requested |
 
-| Model | Notes |
+## Free Model Usability
+
+The runtime recognizes these current task-fit patterns but still requires live
+visibility:
+
+| Model pattern | Established tasks |
 |---|---|
-| `opencode/deepseek-v4-flash-free` | Good first scout and broad fallback. |
-| `opencode/hy3-free` | Cheap scout fallback. |
-| `opencode/mimo-v2.5-free` | Cheap scout and summary fallback. |
-| `opencode/nemotron-3-ultra-free` | Cheap broad reasoning fallback. |
-| `opencode/north-mini-code-free` | Cheap code-oriented scout fallback. |
+| `north-mini-code-free` | `code-small`, `debug`, `review` |
+| `deepseek-v4-flash-free` | `scout`, `bulk`, `review`, `closure-validation` |
+| `nemotron-3-ultra-free` | `scout`, `review`, `closure-validation` |
+| `mimo-v2.5-free` | `scout`, `bulk`, `review`, `closure-validation` |
+| `hy3-free` | `scout`, `bulk`, `review` |
 
-## Default Chains
+Classification rules:
 
-Use the first currently visible model in the chain, skip missing models, and
-never emit the same model twice. Prefer a later model when the scorecard has
-enough comparable runs to show materially better acceptance for that task type.
+- `usable`: live and established for the requested task, without repeated hard
+  failure evidence.
+- `probe-only`: new/unknown or not established for this task. It may run a
+  bounded read-only probe and can be explicitly requested.
+- `excluded`: three recent comparable hard failures with no success. Re-enable
+  only after a deliberate smoke probe succeeds.
 
-| Task type | Default fallback chain |
+Do not equate malformed-report failures with poor code quality when diagnosing
+a route. Record provider failure, report failure, policy failure, and incorrect
+patch separately.
+
+## Explicit Requests
+
+Explicit safe model requests override defaults and remain first in the chain:
+
+| Request | Route |
 |---|---|
-| `scout` | `opencode/deepseek-v4-flash-free` -> `opencode/north-mini-code-free` -> `opencode/mimo-v2.5-free` -> `airouter/DeepSeek-V4-Flash` -> `airouter/Qwen3.6` |
-| `bulk` | `opencode/deepseek-v4-flash-free` -> `opencode/mimo-v2.5-free` -> `airouter/DeepSeek-V4-Flash` |
-| `code-small` | `opencode/north-mini-code-free` -> `airouter/Qwen3.6` -> `airouter/DeepSeek-V4-Flash` |
-| `debug` | `opencode/north-mini-code-free` -> `airouter/Qwen3.6` -> `opencode/deepseek-v4-flash-free` |
-| `review` | `opencode/nemotron-3-ultra-free` -> `airouter/Qwen3.6` -> `airouter/DeepSeek-V4-Flash` |
-| `closure-validation` | `opencode/nemotron-3-ultra-free` -> `airouter/Qwen3.6` -> `airouter/DeepSeek-V4-Flash` |
+| `launch subagents with SWE 1.7` | `spawn-devin.sh --model swe-1.7` |
+| `use Composer` | `spawn-cursor.sh --model composer-2.5` |
+| `use Composer Fast` | `spawn-cursor.sh --model composer-2.5-fast` |
+| `only free OpenCode` | `spawn-opencode.sh --policy only-free` |
+| explicit `airouter/...` | OpenCode wrapper with that exact model |
+| explicit `mistral/...` | OpenCode wrapper with that exact model |
 
-## Optional OpenCodeGo Chains
-
-Only use when the user explicitly allows OpenCodeGo or when `SUBAGENT_POLICY=allow-limited`.
-
-| Task type | OpenCodeGo fallback chain |
-|---|---|
-| `code-small` | `opencode-go/kimi-k2.7-code` -> `opencode-go/qwen3.7-plus` -> `opencode-go/deepseek-v4-flash` |
-| `debug` | `opencode-go/qwen3.7-plus` -> `opencode-go/deepseek-v4-pro` -> `opencode-go/kimi-k2.7-code` |
-| `review` | `opencode-go/qwen3.7-max` -> `opencode-go/qwen3.7-plus` |
-| `closure-validation` | `opencode-go/qwen3.7-max` -> `opencode-go/qwen3.7-plus` -> `opencode-go/deepseek-v4-pro` |
-
-## Devin/SWE 1.7
-
-Use Devin/SWE 1.7 for bounded implementation or `long-autonomous` work only when the task has clear acceptance criteria, a narrow manifest, and safe autonomous scope. Still keep the main Codex thread as coordinator and final reviewer.
-
-Suggested Devin model policy:
-
-| Policy | Model |
-|---|---|
-| default | `swe-1.7`; always announce the explicit model. |
-| SWE work | `swe-1.7` when available through Devin CLI/config. |
-| codex requested | `codex` |
-| stronger reasoning requested | `opus` or explicit user-provided Devin model |
-
-Use the runtime's `read-only` profile for investigation and `edit` for a bounded
-manifest. The runtime maps these to Devin `auto` and `accept-edits`, runs Devin
-with `--sandbox`, and keeps all user interaction in the main Codex task.
+Never use OpenCodeGo without explicit permission. Never use local `omlx/*`
+models for delegated work. An explicit model changes routing, not the mandatory
+external polish and Codex final-review gates.

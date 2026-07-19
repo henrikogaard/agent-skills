@@ -104,8 +104,8 @@ class DelegateCliTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             run_dir = Path(result.stdout.strip())
             state = json.loads((run_dir / "state.json").read_text())
-            self.assertEqual(state["state"], "accepted")
-            self.assertEqual(state["decision"], "accepted")
+            self.assertEqual(state["state"], "worker-complete")
+            self.assertEqual(state["decision"], "worker-complete")
             args = json.loads(args_file.read_text())
             self.assertNotIn("PRIVATE PROMPT CONTENT", args)
             self.assertIn("--auto", args)
@@ -182,7 +182,7 @@ print({report!r})
             state = json.loads((Path(result.stdout.strip()) / "state.json").read_text())
             self.assertEqual([attempt["model"] for attempt in state["attempts"]], ["fake/one", "fake/two"])
             self.assertEqual(state["attempts"][0]["state"], "provider-unavailable")
-            self.assertEqual(state["attempts"][1]["state"], "accepted")
+            self.assertEqual(state["attempts"][1]["state"], "worker-complete")
 
     def test_default_attempt_limit_stops_after_one_provider_failure(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -263,7 +263,7 @@ print({report!r})
             self.assertEqual(result.returncode, 0, result.stderr)
             state = json.loads((Path(result.stdout.strip()) / "state.json").read_text())
             self.assertEqual(state["attempts"][0]["state"], "died")
-            self.assertEqual(state["attempts"][1]["state"], "accepted")
+            self.assertEqual(state["attempts"][1]["state"], "worker-complete")
 
     def test_exit_zero_blocked_report_needs_follow_up(self):
         with tempfile.TemporaryDirectory() as temp:

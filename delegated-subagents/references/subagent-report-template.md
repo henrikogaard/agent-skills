@@ -25,6 +25,12 @@ COMMANDS_RUN:
 VERIFICATION:
 - <check> -> <result>
 
+REVIEW_FINDINGS:
+- <severity, file:line, finding, or "none">
+
+FINDING_DISPOSITION:
+- <finding -> fixed|open|not-applicable>
+
 ACCEPTANCE_CRITERIA:
 - [pass|fail|unknown] <criterion> -> <evidence>
 

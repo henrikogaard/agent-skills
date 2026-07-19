@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import collections
 import fcntl
+import hashlib
 import json
 import os
 import shutil
@@ -20,6 +21,7 @@ sys.dont_write_bytecode = True
 
 from runtime import (
     TERMINAL_STATES,
+    assess_free_models,
     atomic_write_json,
     capture_process_identity,
     create_run_dir,
@@ -37,6 +39,10 @@ ACTIVE_STATES = {"starting", "running", "cancelling"}
 current_process: subprocess.Popen[bytes] | None = None
 current_identity: dict[str, Any] | None = None
 cancel_requested = False
+
+
+def required_executable(tool: str) -> str:
+    return "cursor-agent" if tool == "cursor" else tool
 
 
 def load_state(path: Path) -> dict[str, Any]:
@@ -180,6 +186,31 @@ def build_command(args: argparse.Namespace, model: str, prompt_copy: Path, run_d
         ]
         return command
 
+    if args.tool == "cursor":
+        command = [
+            "cursor-agent",
+            "--print",
+            "--output-format",
+            "text",
+            "--model",
+            model,
+            "--workspace",
+            str(args.workdir),
+            "--add-dir",
+            str(prompt_copy.parent),
+            "--sandbox",
+            "enabled",
+            "--trust",
+        ]
+        if args.permission_profile == "edit":
+            command.append("--force")
+        else:
+            command.extend(["--mode", "plan"])
+        command.append(
+            f"Read {prompt_copy} and return its required structured report. Do not ask the user questions."
+        )
+        return command
+
     permission_mode = "accept-edits" if args.permission_profile == "edit" else "auto"
     command = [
         "devin",
@@ -247,6 +278,7 @@ def iter_states(state_root: Path) -> list[tuple[Path, dict[str, Any]]]:
 def status_rows(state_root: Path) -> list[dict[str, Any]]:
     rows = []
     for run_dir, state in iter_states(state_root):
+        refresh_approval_state(run_dir, state)
         rows.append(
             {
                 "id": state.get("run_id", run_dir.name),
@@ -380,7 +412,7 @@ def cleanup_command(args: argparse.Namespace) -> int:
 def scorecard_command(args: argparse.Namespace) -> int:
     history = args.state_root.parent / "model-history.jsonl"
     aggregate: dict[tuple[str, str], dict[str, Any]] = collections.defaultdict(
-        lambda: {"runs": 0, "accepted": 0, "duration": 0.0, "results": collections.Counter()}
+        lambda: {"runs": 0, "completed": 0, "duration": 0.0, "results": collections.Counter()}
     )
     if history.exists():
         for line in history.read_text(encoding="utf-8", errors="replace").splitlines():
@@ -394,7 +426,7 @@ def scorecard_command(args: argparse.Namespace) -> int:
             task_type = str(record.get("task_type", "unknown"))
             item = aggregate[(model, task_type)]
             item["runs"] += 1
-            item["accepted"] += int(record.get("result") == "accepted")
+            item["completed"] += int(record.get("result") in {"accepted", "worker-complete", "approved"})
             item["duration"] += float(record.get("duration_seconds", 0))
             item["results"][str(record.get("result", "unknown"))] += 1
     rows = []
@@ -404,18 +436,18 @@ def scorecard_command(args: argparse.Namespace) -> int:
                 "model": model,
                 "task_type": task_type,
                 "runs": item["runs"],
-                "acceptance_rate": round(item["accepted"] / item["runs"], 3),
+                "completion_rate": round(item["completed"] / item["runs"], 3),
                 "average_duration_seconds": round(item["duration"] / item["runs"], 2),
                 "results": dict(item["results"]),
             }
         )
-    rows.sort(key=lambda row: (row["task_type"], -row["acceptance_rate"], -row["runs"], row["model"]))
+    rows.sort(key=lambda row: (row["task_type"], -row["completion_rate"], -row["runs"], row["model"]))
     if args.json:
         print(json.dumps(rows, indent=2, sort_keys=True))
     else:
-        print("TASK\tMODEL\tRUNS\tACCEPT_RATE\tAVG_SECONDS\tRESULTS")
+        print("TASK\tMODEL\tRUNS\tCOMPLETE_RATE\tAVG_SECONDS\tRESULTS")
         for row in rows:
-            print(f"{row['task_type']}\t{row['model']}\t{row['runs']}\t{row['acceptance_rate']}\t{row['average_duration_seconds']}\t{json.dumps(row['results'], sort_keys=True)}")
+            print(f"{row['task_type']}\t{row['model']}\t{row['runs']}\t{row['completion_rate']}\t{row['average_duration_seconds']}\t{json.dumps(row['results'], sort_keys=True)}")
     return 0
 
 
@@ -428,7 +460,15 @@ def models_command(args: argparse.Namespace) -> int:
         print(result.stderr, file=sys.stderr, end="")
         return result.returncode
     models = dedupe(line.strip() for line in result.stdout.splitlines())
-    snapshot = {"refreshed_at": utc_now(), "models": models}
+    snapshot = {
+        "refreshed_at": utc_now(),
+        "models": models,
+        "free_opencode": assess_free_models(
+            models,
+            task_type=args.task,
+            history_path=args.state_root.parent / "model-history.jsonl",
+        ),
+    }
     snapshot_path = args.state_root.parent / "model-snapshot.json"
     atomic_write_json(snapshot_path, snapshot)
     if args.json:
@@ -436,6 +476,252 @@ def models_command(args: argparse.Namespace) -> int:
     else:
         print("\n".join(models))
         print(f"snapshot={snapshot_path}", file=sys.stderr)
+    return 0
+
+
+def canonical_diff(workdir: Path, base_commit: str) -> str:
+    tracked = subprocess.run(
+        ["git", "-C", str(workdir), "diff", "--binary", "--no-ext-diff", base_commit, "--"],
+        text=True,
+        capture_output=True,
+    )
+    if tracked.returncode != 0:
+        raise RuntimeError(tracked.stderr.strip() or "could not build tracked diff")
+    untracked = subprocess.run(
+        ["git", "-C", str(workdir), "ls-files", "--others", "--exclude-standard", "-z"],
+        capture_output=True,
+    )
+    if untracked.returncode != 0:
+        raise RuntimeError(untracked.stderr.decode(errors="replace").strip() or "could not list untracked files")
+    chunks = [tracked.stdout]
+    for raw_path in untracked.stdout.split(b"\0"):
+        if not raw_path:
+            continue
+        path = raw_path.decode("utf-8", errors="surrogateescape")
+        result = subprocess.run(
+            ["git", "diff", "--no-index", "--binary", "--", "/dev/null", path],
+            cwd=workdir,
+            text=True,
+            capture_output=True,
+        )
+        if result.returncode not in {0, 1}:
+            raise RuntimeError(result.stderr.strip() or f"could not diff untracked path {path}")
+        chunks.append(result.stdout)
+    return "".join(chunks)
+
+
+def review_diff(state: dict[str, Any]) -> tuple[str, str]:
+    workdir = Path(str(state.get("workdir", ""))).expanduser().resolve()
+    base_commit = str(state.get("base_commit", ""))
+    if not workdir.is_dir() or not base_commit:
+        raise ValueError("run is missing a usable workdir or base_commit")
+    diff = canonical_diff(workdir, base_commit)
+    return diff, hashlib.sha256(diff.encode("utf-8", errors="surrogateescape")).hexdigest()
+
+
+def model_family(model: str) -> str:
+    slug = model.split("/", 1)[-1].lower()
+    for prefix in ("composer", "swe", "deepseek", "nemotron", "north", "mimo", "hy3", "qwen", "mistral"):
+        if slug.startswith(prefix):
+            return prefix
+    return slug.removesuffix("-free").removesuffix("-fast")
+
+
+def refresh_approval_state(run_dir: Path, state: dict[str, Any]) -> None:
+    review = state.get("review")
+    if state.get("state") != "approved" or not isinstance(review, dict):
+        return
+    try:
+        _diff, current_hash = review_diff(state)
+    except (OSError, RuntimeError, ValueError):
+        return
+    if current_hash == review.get("diff_hash"):
+        return
+    review["status"] = "stale"
+    review["invalidated_at"] = utc_now()
+    state["state"] = "codex-review-required"
+    state["decision"] = "pending"
+    save_state(run_dir, state)
+
+
+def review_packet_command(args: argparse.Namespace) -> int:
+    try:
+        run_dir = resolve_run_dir(args.state_root, args.run)
+        state = load_state(run_dir / "state.json")
+        diff, diff_hash = review_diff(state)
+    except (FileNotFoundError, OSError, RuntimeError, ValueError, json.JSONDecodeError) as error:
+        print(error, file=sys.stderr)
+        return 2
+    if state.get("state") not in {
+        "worker-complete",
+        "pre-review-complete",
+        "changes-required",
+        "codex-review-required",
+    }:
+        print(f"run is not ready for a review packet: {state.get('state')}", file=sys.stderr)
+        return 2
+
+    if state.get("permission_profile") == "edit" and not args.pre_review_run:
+        print("edit work requires a completed external pre-review run", file=sys.stderr)
+        return 2
+
+    workdir = Path(str(state.get("workdir", ""))).expanduser().resolve()
+    final_status = git(workdir, "status", "--porcelain", check=False)
+    if final_status.returncode != 0:
+        print(final_status.stderr.strip() or "could not inspect final changed paths", file=sys.stderr)
+        return 2
+    changed_paths = porcelain_paths(final_status.stdout)
+    allowed_paths = (state.get("manifest") or {}).get("allowed_paths")
+    if state.get("permission_profile") == "edit" and isinstance(allowed_paths, list) and allowed_paths:
+        out_of_scope = [
+            path
+            for path in changed_paths
+            if not path_allowed(path, [item for item in allowed_paths if isinstance(item, str)])
+        ]
+        if out_of_scope:
+            print(f"final diff contains paths outside manifest scope: {', '.join(out_of_scope)}", file=sys.stderr)
+            state["state"] = "rejected"
+            state["decision"] = "rejected"
+            state["out_of_scope_paths"] = out_of_scope
+            save_state(run_dir, state)
+            return 2
+
+    pre_review: dict[str, Any] | None = None
+    if args.pre_review_run:
+        try:
+            pre_dir = resolve_run_dir(args.state_root, args.pre_review_run)
+            pre_state = load_state(pre_dir / "state.json")
+        except (FileNotFoundError, OSError, json.JSONDecodeError) as error:
+            print(f"invalid pre-review run: {error}", file=sys.stderr)
+            return 2
+        if pre_state.get("state") != "worker-complete" or pre_state.get("task_type") != "review":
+            print("pre-review run must be a completed review worker", file=sys.stderr)
+            return 2
+        if Path(str(pre_state.get("workdir", ""))).resolve() != Path(str(state.get("workdir", ""))).resolve():
+            print("pre-review must inspect the implementation worktree", file=sys.stderr)
+            return 2
+        implementation_model = str(state.get("active_model") or (state.get("models") or [""])[0])
+        reviewer_model = str(pre_state.get("active_model") or (pre_state.get("models") or [""])[0])
+        if pre_state.get("tool") == state.get("tool") and model_family(reviewer_model) == model_family(implementation_model):
+            print("pre-review must use an independent provider or model family", file=sys.stderr)
+            return 2
+        pre_review = {
+            "run_id": pre_state.get("run_id", pre_dir.name),
+            "tool": pre_state.get("tool"),
+            "model": pre_state.get("active_model") or (pre_state.get("models") or [None])[0],
+            "report": pre_state.get("report"),
+        }
+        state["state"] = "pre-review-complete"
+
+    diff_path = run_dir / "final.diff"
+    diff_path.write_text(diff, encoding="utf-8", errors="surrogateescape")
+    diff_path.chmod(0o600)
+    acceptance = (state.get("report") or {}).get("acceptance", [])
+    packet_path = run_dir / "review-packet.md"
+    packet = "\n".join(
+        [
+            "# Delegated Work Review Packet",
+            "",
+            f"- Run: `{state.get('run_id', run_dir.name)}`",
+            f"- Tool/model: `{state.get('tool', 'unknown')}/{state.get('active_model') or (state.get('models') or ['unknown'])[0]}`",
+            f"- Repository: `{state.get('repo', 'unknown')}`",
+            f"- Worktree: `{state.get('workdir', 'unknown')}`",
+            f"- Base commit: `{state.get('base_commit', 'unknown')}`",
+            f"- Diff SHA-256: `{diff_hash}`",
+            f"- Changed paths: {', '.join(f'`{path}`' for path in changed_paths) or 'none'}",
+            f"- Pre-review: `{pre_review.get('run_id') if pre_review else 'not linked'}`",
+            "",
+            "## Acceptance evidence",
+            "",
+            "```json",
+            json.dumps(acceptance, indent=2, sort_keys=True),
+            "```",
+            "",
+            "## Pre-review evidence",
+            "",
+            "```json",
+            json.dumps(pre_review, indent=2, sort_keys=True),
+            "```",
+            "",
+            "## Residual risks",
+            "",
+            str((state.get("manifest") or {}).get("residual_risks", "none reported")),
+            "",
+            "## Complete final diff",
+            "",
+            "```diff",
+            diff.rstrip(),
+            "```",
+            "",
+        ]
+    )
+    packet_path.write_text(packet, encoding="utf-8", errors="surrogateescape")
+    packet_path.chmod(0o600)
+    state["review_packet"] = {
+        "created_at": utc_now(),
+        "path": str(packet_path),
+        "diff_path": str(diff_path),
+        "diff_hash": diff_hash,
+        "pre_review": pre_review,
+    }
+    state["state"] = "codex-review-required"
+    state["decision"] = "pending"
+    state.pop("review", None)
+    save_state(run_dir, state)
+    print(packet_path)
+    return 0
+
+
+def record_review_command(args: argparse.Namespace) -> int:
+    if args.reviewer != "codex":
+        print("only reviewer 'codex' may record the final review", file=sys.stderr)
+        return 2
+    try:
+        run_dir = resolve_run_dir(args.state_root, args.run)
+        state = load_state(run_dir / "state.json")
+    except (FileNotFoundError, OSError, json.JSONDecodeError) as error:
+        print(error, file=sys.stderr)
+        return 2
+    packet = state.get("review_packet")
+    if not isinstance(packet, dict):
+        print("a current review packet is required before Codex review", file=sys.stderr)
+        return 2
+    try:
+        _diff, current_hash = review_diff(state)
+    except (OSError, RuntimeError, ValueError) as error:
+        print(error, file=sys.stderr)
+        return 2
+    if current_hash != packet.get("diff_hash"):
+        print("review packet is stale because the final diff changed", file=sys.stderr)
+        state["state"] = "codex-review-required"
+        state["decision"] = "pending"
+        save_state(run_dir, state)
+        return 2
+
+    review = {
+        "reviewer": "codex",
+        "reviewed_at": utc_now(),
+        "decision": args.decision,
+        "status": "current",
+        "diff_hash": current_hash,
+        "verification_summary": args.verification_summary,
+        "residual_risk": args.residual_risk,
+    }
+    state["review"] = review
+    if args.decision == "approved":
+        state["state"] = "approved"
+        state["decision"] = "approved"
+    elif args.decision == "changes-required":
+        cycles = int(state.get("repair_cycles", 0)) + 1
+        state["repair_cycles"] = cycles
+        state["external_repair_allowed"] = cycles <= 1
+        state["state"] = "changes-required"
+        state["decision"] = "changes-required"
+    else:
+        state["state"] = "blocked"
+        state["decision"] = "blocked"
+    save_state(run_dir, state)
+    print(run_dir)
     return 0
 
 
@@ -546,8 +832,9 @@ def run_command(args: argparse.Namespace) -> int:
     if not args.prompt_file.is_file():
         print(f"prompt file does not exist: {args.prompt_file}", file=sys.stderr)
         return 2
-    if shutil.which(args.tool) is None:
-        print(f"{args.tool} is not installed", file=sys.stderr)
+    executable = required_executable(args.tool)
+    if shutil.which(executable) is None:
+        print(f"{executable} is not installed", file=sys.stderr)
         return 127
 
     manifest: dict[str, Any] | None = None
@@ -576,11 +863,14 @@ def run_command(args: argparse.Namespace) -> int:
     )[: args.max_attempts]
 
     original_repo = args.workdir
+    base_result = git(original_repo, "rev-parse", "HEAD", check=False)
+    base_commit = base_result.stdout.strip() if base_result.returncode == 0 else ""
     state: dict[str, Any] = {
         "schema_version": 1,
         "tool": args.tool,
         "task_type": args.task,
         "repo": str(original_repo),
+        "base_commit": base_commit,
         "workdir": str(args.workdir),
         "permission_profile": args.permission_profile,
         "models": models,
@@ -613,9 +903,16 @@ def run_command(args: argparse.Namespace) -> int:
         state["run_id"] = run_dir.name
         save_state(run_dir, state)
 
-    prompt_copy = run_dir / "prompt.txt"
+    if args.tool == "cursor":
+        input_dir = run_dir / "input"
+        input_dir.mkdir(mode=0o700)
+        prompt_copy = input_dir / "prompt.txt"
+    else:
+        prompt_copy = run_dir / "prompt.txt"
     shutil.copyfile(args.prompt_file, prompt_copy)
-    prompt_copy.chmod(0o600)
+    prompt_copy.chmod(0o400 if args.tool == "cursor" else 0o600)
+    if args.tool == "cursor":
+        input_dir.chmod(0o500)
     if args.manifest is not None:
         manifest_copy = run_dir / "manifest.json"
         shutil.copyfile(args.manifest, manifest_copy)
@@ -816,7 +1113,7 @@ def run_command(args: argparse.Namespace) -> int:
         final_decision = state["decision"]
         append_history(args.state_root, {"at": utc_now(), "tool": args.tool, "model": model, "task_type": args.task, "result": final_decision, "duration_seconds": attempt["duration_seconds"]})
         save_state(run_dir, state)
-        if final_decision == "accepted":
+        if final_decision == "worker-complete":
             return 0
         if final_decision == "needs-follow-up":
             return 3
@@ -833,7 +1130,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="command", required=True)
     run = subparsers.add_parser("run", help="launch and supervise a subagent")
-    run.add_argument("--tool", choices=("opencode", "devin"), required=True)
+    run.add_argument("--tool", choices=("opencode", "devin", "cursor"), required=True)
     run.add_argument("--task", default="scout")
     run.add_argument("--prompt-file", type=Path, required=True)
     run.add_argument("--manifest", type=Path)
@@ -881,8 +1178,24 @@ def build_parser() -> argparse.ArgumentParser:
 
     models = subparsers.add_parser("models", help="refresh the live OpenCode model snapshot")
     models.add_argument("--state-root", type=Path, default=DEFAULT_STATE_ROOT)
+    models.add_argument("--task", default="scout")
     models.add_argument("--json", action="store_true")
     models.set_defaults(func=models_command)
+
+    packet = subparsers.add_parser("review-packet", help="prepare the final diff for mandatory Codex review")
+    packet.add_argument("run")
+    packet.add_argument("--state-root", type=Path, default=DEFAULT_STATE_ROOT)
+    packet.add_argument("--pre-review-run")
+    packet.set_defaults(func=review_packet_command)
+
+    review = subparsers.add_parser("record-review", help="record the mandatory final Codex review")
+    review.add_argument("run")
+    review.add_argument("--state-root", type=Path, default=DEFAULT_STATE_ROOT)
+    review.add_argument("--reviewer", required=True)
+    review.add_argument("--decision", choices=("approved", "changes-required", "blocked"), required=True)
+    review.add_argument("--verification-summary", required=True)
+    review.add_argument("--residual-risk", default="none")
+    review.set_defaults(func=record_review_command)
 
     prune = subparsers.add_parser("prune", help="remove old terminal run logs and prompts")
     prune.add_argument("--state-root", type=Path, default=DEFAULT_STATE_ROOT)
