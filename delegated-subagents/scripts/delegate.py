@@ -29,6 +29,7 @@ from runtime import (
     create_run_dir,
     dedupe,
     is_availability_failure,
+    model_identity as runtime_model_identity,
     parse_report,
     process_matches,
     rank_models_by_history,
@@ -245,49 +246,9 @@ def append_history(state_root: Path, record: dict[str, Any]) -> None:
         fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
 
-def _model_variant(value: str | None) -> str | None:
-    if not value:
-        return None
-    parts = [part.lower() for part in re.split(r"[\s._-]+", value.strip()) if part]
-    while parts and parts[-1] in {"beta", "preview"}:
-        parts.pop()
-    return "-".join(parts) or None
-
-
 def model_identity(tool: str, model: str) -> dict[str, str | None]:
-    raw_model = model.strip() or "unknown"
-    slug = raw_model.split("/", 1)[-1]
-    swe_match = re.fullmatch(r"swe[\s._-]*1[\s._-]*7(?:[\s._-]+(.+))?", slug, re.IGNORECASE)
-    if swe_match:
-        family = "swe-1.7"
-        variant = _model_variant(swe_match.group(1))
-    else:
-        composer_match = re.fullmatch(
-            r"composer[\s._-]*([0-9]+(?:[._-][0-9]+)*)(?:[\s._-]+(.+))?",
-            slug,
-            re.IGNORECASE,
-        )
-        if composer_match:
-            version = composer_match.group(1).replace("_", ".").replace("-", ".")
-            family = f"composer-{version}"
-            variant = _model_variant(composer_match.group(2))
-        else:
-            lowered = slug.lower()
-            family = next(
-                (
-                    prefix
-                    for prefix in ("deepseek", "nemotron", "north", "mimo", "hy3", "qwen", "mistral")
-                    if lowered.startswith(prefix)
-                ),
-                lowered.removesuffix("-free").removesuffix("-fast"),
-            )
-            variant = None
-    return {
-        "raw_model": raw_model,
-        "model_family": family,
-        "display_name": raw_model,
-        "variant": variant,
-    }
+    del tool
+    return runtime_model_identity(model)
 
 
 def resolve_devin_model(requested: str, configured: str | None, observed: list[str]) -> str:
