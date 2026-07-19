@@ -204,6 +204,64 @@ def _field(text: str, name: str) -> str:
     return matches[-1].strip() if matches else ""
 
 
+def _model_variant(value: str | None) -> str | None:
+    if not value:
+        return None
+    parts = [part.lower() for part in re.split(r"[\s._-]+", value.strip()) if part]
+    while parts and parts[-1] in {"beta", "preview"}:
+        parts.pop()
+    return "-".join(parts) or None
+
+
+def model_identity(model: str) -> dict[str, str | None]:
+    raw_model = model.strip() or "unknown"
+    slug = raw_model.rsplit("/", 1)[-1].strip()
+    swe_match = re.fullmatch(r"swe[\s._-]*1[\s._-]*7(?:[\s._-]+(.+))?", slug, re.IGNORECASE)
+    if swe_match:
+        family = "swe-1.7"
+        variant = _model_variant(swe_match.group(1))
+    else:
+        composer_match = re.fullmatch(
+            r"composer[\s._-]*([0-9]+(?:[._-][0-9]+)*)(?:[\s._-]+(.+))?",
+            slug,
+            re.IGNORECASE,
+        )
+        if composer_match:
+            version = composer_match.group(1).replace("_", ".").replace("-", ".")
+            family = f"composer-{version}"
+            variant = _model_variant(composer_match.group(2))
+        else:
+            lowered = slug.lower()
+            family = next(
+                (
+                    prefix
+                    for prefix in ("deepseek", "nemotron", "north", "mimo", "hy3", "qwen", "mistral")
+                    if lowered.startswith(prefix)
+                ),
+                lowered.removesuffix("-free").removesuffix("-fast"),
+            )
+            variant = None
+    return {
+        "raw_model": raw_model,
+        "model_family": family,
+        "display_name": raw_model,
+        "variant": variant,
+    }
+
+
+def model_names_match(reported_model: str, expected_model: str) -> bool:
+    if reported_model.casefold() == expected_model.casefold():
+        return True
+    reported = model_identity(reported_model)
+    expected = model_identity(expected_model)
+    if reported["model_family"] != expected["model_family"]:
+        return False
+    if expected["model_family"] not in {"swe-1.7", "composer-2.5"}:
+        return False
+    expected_variant = expected["variant"]
+    return expected_variant is None or reported["variant"] == expected_variant
+
+
 def parse_report(text: str, expected_model: str) -> ParsedReport:
     status = _field(text, "STATUS").lower()
     model = _field(text, "MODEL")
@@ -216,7 +274,7 @@ def parse_report(text: str, expected_model: str) -> ParsedReport:
         errors.append("missing or invalid STATUS")
     if not model:
         errors.append("missing MODEL")
-    elif model != expected_model:
+    elif not model_names_match(model, expected_model):
         errors.append(f"reported model {model!r} does not match launched model {expected_model!r}")
     if not task_type:
         errors.append("missing TASK_TYPE")

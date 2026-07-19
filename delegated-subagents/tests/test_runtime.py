@@ -75,6 +75,51 @@ not-applicable
         self.assertFalse(report.valid)
         self.assertEqual(report.decision, "rejected")
 
+    def test_swe_family_alias_accepts_current_dynamic_display_name(self):
+        text = """STATUS: success
+MODEL: Devin / SWE-1.7 Max Beta
+TASK_TYPE: code-small
+REPO: /tmp/repo
+ACCEPTANCE_CRITERIA:
+- [pass] focused change -> tests passed
+CLOSURE_RECOMMENDATION:
+ready-for-review
+"""
+        report = self.runtime.parse_report(text, expected_model="swe-1.7")
+
+        self.assertTrue(report.valid, report.errors)
+        self.assertEqual(report.decision, "worker-complete")
+
+    def test_exact_swe_variant_rejects_a_different_reported_variant(self):
+        text = """STATUS: success
+MODEL: Devin / SWE-1.7 Lightning Beta
+TASK_TYPE: code-small
+REPO: /tmp/repo
+ACCEPTANCE_CRITERIA:
+- [pass] focused change -> tests passed
+CLOSURE_RECOMMENDATION:
+ready-for-review
+"""
+        report = self.runtime.parse_report(text, expected_model="SWE-1.7 Max Beta")
+
+        self.assertFalse(report.valid)
+        self.assertIn("does not match", " ".join(report.errors))
+
+    def test_composer_cli_alias_accepts_display_name(self):
+        text = """STATUS: success
+MODEL: Composer 2.5
+TASK_TYPE: code-small
+REPO: /tmp/repo
+ACCEPTANCE_CRITERIA:
+- [pass] focused change -> tests passed
+CLOSURE_RECOMMENDATION:
+ready-for-review
+"""
+        report = self.runtime.parse_report(text, expected_model="composer-2.5")
+
+        self.assertTrue(report.valid, report.errors)
+        self.assertEqual(report.decision, "worker-complete")
+
     def test_successful_worker_is_complete_but_not_approved(self):
         text = """STATUS: success
 MODEL: provider/model

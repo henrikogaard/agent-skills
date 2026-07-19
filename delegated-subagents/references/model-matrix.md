@@ -14,7 +14,7 @@ The command calls `opencode models`, discovers every identifier matching
 
 | Route | Cost source | Default role |
 |---|---|---|
-| Devin `swe-1.7` | Free for this installation | Bounded implementation and repair after smoke success |
+| Devin SWE-1.7 family | Free for this installation | Bounded implementation and repair after smoke success |
 | `opencode/*free*` | Free, verified from live model identifier | Scout and independent pre-review when task-fit |
 | `airouter/*` | Free for this installation | Scout/reviewer fallback |
 | Cursor Composer | Cursor subscription | Reliable implementation, debugging, repair, coordination |
@@ -26,13 +26,22 @@ The command calls `opencode models`, discovers every identifier matching
 | Task | Primary | Polish/reviewer | Fallback |
 |---|---|---|---|
 | `scout`, `bulk` | Best live usable free OpenCode model | Another free model only for conflicting evidence | `airouter/Qwen3.6` |
-| Mechanical edit | SWE 1.7 | Live usable free reviewer | Composer 2.5 Fast |
-| `code-small` | SWE 1.7 after smoke success | Composer Fast or independent usable free reviewer | Composer 2.5 |
-| `debug` | Composer 2.5 | SWE 1.7 or Mistral Medium | Mistral Medium |
-| Approved complex slice | Composer 2.5 | Different-family SWE or Mistral review | Return to Codex |
-| `review` | Different family from implementer; prefer usable free, SWE, or Composer Fast | Not applicable | Mistral Medium |
+| Mechanical edit | SWE-1.7 family | Live usable free reviewer | Composer 2.5 Fast |
+| `code-small` | SWE-1.7 family after smoke success | Composer Fast or independent usable free reviewer | Composer 2.5 |
+| `debug` | Composer 2.5 | SWE-1.7 family or Mistral Medium | Mistral Medium |
+| Approved complex slice | Composer 2.5 | Different-family SWE-1.7 or Mistral review | Return to Codex |
+| `review` | Different family from implementer; prefer usable free, SWE-1.7, or Composer Fast | Not applicable | Mistral Medium |
 | `closure-validation` | Live usable free review/general model | Deterministic checklist | aiRouter Qwen |
 | Decomposable epic | Composer coordinates bounded free/SWE slices | Independent review per slice | Mistral only when requested |
+
+## Dynamic Devin Names
+
+`swe-1.7` is the stable policy family, not a permanent exact provider name.
+Set `DEVIN_SWE_MODEL` to the current exact identifier, such as `SWE-1.7 Max
+Beta`. An explicit exact safe request wins; otherwise the runtime uses the
+configured value, then the most recently successful observed SWE-1.7 variant,
+then the compatibility family alias. Max, Lightning, and later variants stay
+distinct in usage evidence while belonging to the same review family.
 
 ## Free Model Usability
 
@@ -66,7 +75,7 @@ Explicit safe model requests override defaults and remain first in the chain:
 
 | Request | Route |
 |---|---|
-| `launch subagents with SWE 1.7` | `spawn-devin.sh --model swe-1.7` |
+| `launch subagents with SWE 1.7` | `spawn-devin.sh --model swe-1.7` resolves the current family variant |
 | `use Composer` | `spawn-cursor.sh --model composer-2.5` |
 | `use Composer Fast` | `spawn-cursor.sh --model composer-2.5-fast` |
 | `only free OpenCode` | `spawn-opencode.sh --policy only-free` |

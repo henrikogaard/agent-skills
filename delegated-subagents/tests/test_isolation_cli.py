@@ -273,6 +273,7 @@ ready-for-review''')
             prompt.write_text("PRIVATE DEVIN PROMPT")
             env = os.environ.copy()
             env["PATH"] = f"{fake_bin}{os.pathsep}{env['PATH']}"
+            env["DEVIN_SWE_MODEL"] = "SWE-1.7 Max Beta"
             result = subprocess.run(
                 [
                     sys.executable,
@@ -308,6 +309,11 @@ ready-for-review''')
             self.assertIn("--sandbox", args)
             self.assertIn("--print", args)
             self.assertNotIn("PRIVATE DEVIN PROMPT", args)
+            self.assertEqual(args[args.index("--model") + 1], "SWE-1.7 Max Beta")
+            state = json.loads((Path(result.stdout.strip()) / "state.json").read_text())
+            self.assertEqual(state["attempts"][0]["raw_model"], "SWE-1.7 Max Beta")
+            self.assertEqual(state["attempts"][0]["model_family"], "swe-1.7")
+            self.assertEqual(state["attempts"][0]["variant"], "max")
 
     def test_cursor_edit_profile_is_noninteractive_sandboxed_and_prompt_safe(self):
         with tempfile.TemporaryDirectory() as temp:
