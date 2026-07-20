@@ -1,6 +1,6 @@
 # Agent Skills
 
-Personal Agent Skills that can be copied into Codex, Claude Code, and OpenCode.
+Portable personal Agent Skills for Codex, OpenCode, Claude Code, and compatible harnesses. This repository is the editable source of truth; installed skill directories are deployments, not authoring locations.
 
 ## Skill Catalog
 
@@ -52,27 +52,46 @@ skill's `SKILL.md`.
 | Privacy/security-sensitive work | `privacy-local-first-review` -> `verification-matrix` -> `review-before-commit` |
 | Skill repo maintenance | `skill-maintainer` -> `summary-tables` |
 
-## Install A Skill In Codex
+## Catalog Ownership
 
-For local Codex installs, copy a skill folder into the Codex skills directory:
+[`config/skills.yaml`](config/skills.yaml) declares every repository-managed skill and its install target:
+
+- Portable skills target `~/.agents/skills` and stay in top-level repository folders.
+- Future Codex-only skills target `~/.codex/skills` and live under `platforms/codex/`.
+- Codex-managed system and plugin skills are external capabilities and are never copied or overwritten by this repository.
+- The same active skill name must not be deployed to both portable and Codex roots.
+
+The phase-one CLI is deliberately read-only. It validates, inventories, reports drift, and shows intended additions without changing installed files:
 
 ```bash
-mkdir -p ~/.codex/skills
-rsync -a summary-tables/ ~/.codex/skills/summary-tables/
+ruby scripts/skills validate
+ruby scripts/skills inventory
+ruby scripts/skills status
+ruby scripts/skills plan
 ```
 
-Install all skills from this repo:
+Use `--format json` for automation and `--agents-root` or `--codex-root` for temporary-home tests. `status` exits nonzero when expected skills are missing or drifted, or when a portable/Codex duplicate exists. `plan` reports locally modified installs as `blocked_drift` and never proposes deleting unmanaged folders.
+
+## Install Portable Skills For Codex And OpenCode
+
+The shared global deployment root is `~/.agents/skills`. OpenCode officially discovers this path, and Codex can consume the same portable skills without maintaining duplicate copies in `~/.codex/skills`.
+
+Until the reviewed `sync` phase is implemented, inspect the plan and copy only the intended portable skill explicitly:
 
 ```bash
-mkdir -p ~/.codex/skills
-for skill in */; do
-  [ -f "$skill/SKILL.md" ] && rsync -a "$skill" ~/.codex/skills/"${skill%/}/"
-done
+ruby scripts/skills plan
+mkdir -p ~/.agents/skills
+rsync -a summary-tables/ ~/.agents/skills/summary-tables/
 ```
 
-Restart Codex or start a new thread if the skill list was already loaded.
+For an OpenCode project-local install, use the portable project path:
 
-Codex also has an app UI for creating and managing skills. This repo keeps the portable filesystem version so the same skill can be reused across tools.
+```bash
+mkdir -p .agents/skills
+rsync -a /Users/henrik/Dev/Repos/agent-skills/summary-tables/ .agents/skills/summary-tables/
+```
+
+Restart the harness or start a new task if its skill inventory was loaded before the copy.
 
 ## Install A Skill In Claude Code
 
@@ -83,15 +102,6 @@ mkdir -p ~/.claude/skills
 rsync -a summary-tables/ ~/.claude/skills/summary-tables/
 ```
 
-Install all skills globally:
-
-```bash
-mkdir -p ~/.claude/skills
-for skill in */; do
-  [ -f "$skill/SKILL.md" ] && rsync -a "$skill" ~/.claude/skills/"${skill%/}/"
-done
-```
-
 Install only for the current project:
 
 ```bash
@@ -99,52 +109,9 @@ mkdir -p .claude/skills
 rsync -a /Users/henrik/Dev/Repos/agent-skills/summary-tables/ .claude/skills/summary-tables/
 ```
 
-Install all skills only for the current project:
-
-```bash
-mkdir -p .claude/skills
-for skill in /Users/henrik/Dev/Repos/agent-skills/*/; do
-  [ -f "$skill/SKILL.md" ] && rsync -a "$skill" .claude/skills/"$(basename "$skill")/"
-done
-```
-
 Claude Code can invoke skills automatically from their `description`, or directly with `/summary-tables`.
 
-## Install A Skill In OpenCode
-
-Install globally using OpenCode's native skill path:
-
-```bash
-mkdir -p ~/.config/opencode/skill
-rsync -a summary-tables/ ~/.config/opencode/skill/summary-tables/
-```
-
-Install all skills globally:
-
-```bash
-mkdir -p ~/.config/opencode/skill
-for skill in */; do
-  [ -f "$skill/SKILL.md" ] && rsync -a "$skill" ~/.config/opencode/skill/"${skill%/}/"
-done
-```
-
-Install only for the current project:
-
-```bash
-mkdir -p .opencode/skill
-rsync -a /Users/henrik/Dev/Repos/agent-skills/summary-tables/ .opencode/skill/summary-tables/
-```
-
-Install all skills only for the current project:
-
-```bash
-mkdir -p .opencode/skill
-for skill in /Users/henrik/Dev/Repos/agent-skills/*/; do
-  [ -f "$skill/SKILL.md" ] && rsync -a "$skill" .opencode/skill/"$(basename "$skill")/"
-done
-```
-
-OpenCode also loads Claude-compatible skill paths, so a global Claude install at `~/.claude/skills/summary-tables/` can be shared by Claude Code and OpenCode.
+Claude Code documents `~/.claude/skills` rather than the portable global root. The future `agent-baseline` adapter will own that harness-specific deployment. Because OpenCode also discovers Claude-compatible paths, do not install the same skill into both `~/.agents/skills` and `~/.claude/skills` on an OpenCode host unless duplicate discovery has been explicitly resolved.
 
 ## Validate
 
@@ -157,16 +124,16 @@ python3 ~/.codex/skills/.system/skill-creator/scripts/quick_validate.py summary-
 Validate every skill in this repo:
 
 ```bash
-ruby scripts/validate-skills.rb
+ruby scripts/skills validate
 ```
 
-The repo-local validator has no external gem dependencies. The official skill creator validator can still be run per skill, but it requires `PyYAML` in the Python environment running it.
+`ruby scripts/validate-skills.rb` remains as a compatibility entry point and uses the same manifest-aware validator. The repo-local tooling has no external gem dependencies. The official skill creator validator can still be run per skill, but it requires `PyYAML` in the Python environment running it.
 
 ## References
 
 - [OpenAI: Plugins and skills in Codex](https://openai.com/academy/codex-plugins-and-skills/)
 - [Claude Code: Extend Claude with skills](https://code.claude.com/docs/en/skills)
-- [OpenCode: Agent Skills](https://opencode.ubitools.com/skills/)
+- [OpenCode: Agent Skills](https://opencode.ai/docs/skills/)
 
 ## License
 

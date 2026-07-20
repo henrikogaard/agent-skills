@@ -1,0 +1,86 @@
+schema_version: 1
+
+skills:
+  agents-md-architect: &portable_custom
+    path: agents-md-architect
+    class: portable
+    targets: [agents]
+    ownership: custom
+    update_policy: repository
+  architecture-diagrams:
+    <<: *portable_custom
+    path: architecture-diagrams
+  change-surface-map:
+    <<: *portable_custom
+    path: change-surface-map
+  completion-handoff:
+    <<: *portable_custom
+    path: completion-handoff
+  debugging-process:
+    <<: *portable_custom
+    path: debugging-process
+  delegated-subagents:
+    <<: *portable_custom
+    path: delegated-subagents
+  design-system-guard:
+    <<: *portable_custom
+    path: design-system-guard
+  docs-sweep:
+    <<: *portable_custom
+    path: docs-sweep
+  github-project-hygiene:
+    <<: *portable_custom
+    path: github-project-hygiene
+  implementation-process:
+    <<: *portable_custom
+    path: implementation-process
+  issue-to-plan:
+    <<: *portable_custom
+    path: issue-to-plan
+  lifecycle-router:
+    <<: *portable_custom
+    path: lifecycle-router
+  migration-safety:
+    <<: *portable_custom
+    path: migration-safety
+  needs-analysis:
+    <<: *portable_custom
+    path: needs-analysis
+  pr-description:
+    <<: *portable_custom
+    path: pr-description
+  privacy-local-first-review:
+    <<: *portable_custom
+    path: privacy-local-first-review
+  release-surface-guard:
+    <<: *portable_custom
+    path: release-surface-guard
+  repo-memory:
+    <<: *portable_custom
+    path: repo-memory
+  requirements-spec:
+    <<: *portable_custom
+    path: requirements-spec
+  review-before-commit:
+    <<: *portable_custom
+    path: review-before-commit
+  safe-git-handoff:
+    <<: *portable_custom
+    path: safe-git-handoff
+  skill-maintainer:
+    <<: *portable_custom
+    path: skill-maintainer
+  solution-design:
+    <<: *portable_custom
+    path: solution-design
+  summary-router:
+    <<: *portable_custom
+    path: summary-router
+  summary-tables:
+    <<: *portable_custom
+    path: summary-tables
+  verification-matrix:
+    <<: *portable_custom
+    path: verification-matrix
+
+external_capabilities: []
