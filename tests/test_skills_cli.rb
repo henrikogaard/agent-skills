@@ -53,7 +53,8 @@ class SkillsCliTest < Minitest::Test
             path: codex-demo
             class: codex
             targets: [codex]
-            ownership: custom
+            ownership: first-party
+            publication: public
             update_policy: repository
         external_capabilities: []
       YAML
@@ -62,6 +63,30 @@ class SkillsCliTest < Minitest::Test
       errors = AgentSkills::Catalog.new(root).validate
 
       assert_includes errors, "codex-demo: Codex skills must live under platforms/codex"
+    end
+  end
+
+  def test_validate_rejects_non_first_party_skills
+    Dir.mktmpdir do |root|
+      write_fixture_skill(root, "demo", "demo")
+      write_fixture_manifest(root, "demo", "demo", ownership: "vendored-third-party")
+      File.write(File.join(root, "README.md"), "[`demo`](demo/SKILL.md)\n")
+
+      errors = AgentSkills::Catalog.new(root).validate
+
+      assert_includes errors, "demo: ownership must be first-party"
+    end
+  end
+
+  def test_validate_rejects_vendor_directories_in_the_public_repository
+    Dir.mktmpdir do |root|
+      write_fixture_skill(root, "vendor/demo", "demo")
+      write_fixture_manifest(root, "demo", "vendor/demo")
+      File.write(File.join(root, "README.md"), "[`demo`](vendor/demo/SKILL.md)\n")
+
+      errors = AgentSkills::Catalog.new(root).validate
+
+      assert_includes errors, "filesystem: public repository must not contain vendor/"
     end
   end
 
@@ -261,7 +286,7 @@ class SkillsCliTest < Minitest::Test
     YAML
   end
 
-  def write_fixture_manifest(root, name, path)
+  def write_fixture_manifest(root, name, path, ownership: "first-party")
     FileUtils.mkdir_p(File.join(root, "config"))
     File.write(File.join(root, "config", "skills.yaml"), <<~YAML)
       schema_version: 1
@@ -270,7 +295,8 @@ class SkillsCliTest < Minitest::Test
           path: #{path}
           class: portable
           targets: [agents]
-          ownership: custom
+          ownership: #{ownership}
+          publication: public
           update_policy: repository
       external_capabilities: []
     YAML

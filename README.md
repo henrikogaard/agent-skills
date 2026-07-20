@@ -1,6 +1,6 @@
 # Agent Skills
 
-Portable personal Agent Skills for Codex, OpenCode, Claude Code, and compatible harnesses. This repository is the editable source of truth; installed skill directories are deployments, not authoring locations.
+Henrik-authored Agent Skills for Codex, OpenCode, Claude Code, and compatible harnesses. This public repository contains only first-party skills authored and maintained by Henrik; imported, mirrored, or vendored third-party skills belong in the private `agent-baseline` repository. Installed skill directories are deployments, not authoring locations.
 
 ## Skill Catalog
 
@@ -56,6 +56,8 @@ skill's `SKILL.md`.
 
 [`config/skills.yaml`](config/skills.yaml) declares every repository-managed skill and its install target:
 
+- Every published entry must declare `ownership: first-party` and `publication: public`.
+- A `vendor/` directory and third-party/imported skill entries are rejected by validation.
 - Portable skills target `~/.agents/skills` and stay in top-level repository folders.
 - Future Codex-only skills target `~/.codex/skills` and live under `platforms/codex/`.
 - Codex-managed system and plugin skills are external capabilities and are never copied or overwritten by this repository.
@@ -138,6 +140,8 @@ ruby scripts/skills validate
 ## License
 
 This personal skill collection is licensed under the [MIT License](LICENSE.md).
+
+Contributions must preserve the first-party-only catalog boundary described in [CONTRIBUTING.md](CONTRIBUTING.md). Report suspected security or privacy problems using [SECURITY.md](SECURITY.md).
 
 ## Repo Shape
 

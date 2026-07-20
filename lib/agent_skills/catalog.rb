@@ -7,7 +7,7 @@ module AgentSkills
     ALLOWED_CLASSES = %w[portable codex].freeze
     ALLOWED_TARGETS = %w[agents codex].freeze
     NAME_PATTERN = /\A[a-z0-9]+(?:-[a-z0-9]+)*\z/
-    REQUIRED_FIELDS = %w[path class targets ownership update_policy].freeze
+    REQUIRED_FIELDS = %w[path class targets ownership publication update_policy].freeze
 
     attr_reader :root, :manifest, :errors
 
@@ -31,6 +31,7 @@ module AgentSkills
       errors.replace(@manifest_load_errors)
       validate_manifest_shape
       validate_entries
+      validate_public_repository_boundary
       validate_filesystem_coverage
       validate_target_collisions
       validate_readme_links
@@ -78,6 +79,8 @@ module AgentSkills
         errors << "#{name}: targets must not be empty" if targets.empty?
         invalid_targets = targets - ALLOWED_TARGETS
         errors << "#{name}: invalid targets #{invalid_targets.join(', ')}" unless invalid_targets.empty?
+        errors << "#{name}: ownership must be first-party" unless entry["ownership"] == "first-party"
+        errors << "#{name}: publication must be public" unless entry["publication"] == "public"
         validate_routing(name, entry, targets)
 
         path = safe_skill_path(name, entry["path"])
@@ -170,6 +173,11 @@ module AgentSkills
 
       (discovered - declared).each { |path| errors << "filesystem: undeclared skill path #{path}" }
       (declared - discovered).each { |path| errors << "manifest: missing skill path #{path}" }
+    end
+
+    def validate_public_repository_boundary
+      vendor_root = File.join(root, "vendor")
+      errors << "filesystem: public repository must not contain vendor/" if File.exist?(vendor_root)
     end
 
     def ignored_skill_file?(path)

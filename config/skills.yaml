@@ -5,7 +5,8 @@ skills:
     path: agents-md-architect
     class: portable
     targets: [agents]
-    ownership: custom
+    ownership: first-party
+    publication: public
     update_policy: repository
   architecture-diagrams:
     <<: *portable_custom
