@@ -1,0 +1,7 @@
+interface:
+  display_name: "Docs Sweep"
+  short_description: "Decide and update the right docs after repository changes"
+  default_prompt: "Use $docs-sweep to check which docs, worklog, changelog, ADR, or runbook updates are required."
+
+policy:
+  allow_implicit_invocation: true

@@ -1,0 +1,7 @@
+interface:
+  display_name: "Privacy Local-First Review"
+  short_description: "Review privacy, credentials, telemetry, and local-first data flow"
+  default_prompt: "Use $privacy-local-first-review for privacy, telemetry, credential, auth, sync, or local-first changes."
+
+policy:
+  allow_implicit_invocation: true

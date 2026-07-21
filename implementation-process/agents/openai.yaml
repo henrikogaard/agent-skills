@@ -1,0 +1,7 @@
+interface:
+  display_name: "Implementation Process"
+  short_description: "Execute approved plans in small verified slices with tests, docs, and review"
+  default_prompt: "Use $implementation-process to code or execute an approved feature, fix, refactor, or design through small slices, checkpoints, verification, docs, and review."
+
+policy:
+  allow_implicit_invocation: true

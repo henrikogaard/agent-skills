@@ -1,0 +1,107 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+require "json"
+require "optparse"
+require_relative "../lib/agent_skills/catalog"
+require_relative "../lib/agent_skills/inventory"
+
+root = File.expand_path("..", __dir__)
+command = ARGV.shift || "help"
+options = {
+  "format" => "text",
+  "agents_root" => File.expand_path("~/.agents/skills"),
+  "codex_root" => File.expand_path("~/.codex/skills")
+}
+
+parser = OptionParser.new do |opts|
+  opts.on("--format FORMAT", %w[text json]) { |value| options["format"] = value }
+  opts.on("--agents-root PATH") { |value| options["agents_root"] = value }
+  opts.on("--codex-root PATH") { |value| options["codex_root"] = value }
+end
+
+begin
+  parser.parse!(ARGV)
+rescue OptionParser::ParseError => e
+  warn e.message
+  exit 2
+end
+
+json = options["format"] == "json"
+catalog = AgentSkills::Catalog.new(root)
+errors = catalog.validate
+
+unless errors.empty?
+  result = { "status" => "error", "skills" => catalog.skills.length, "errors" => errors }
+  json ? puts(JSON.pretty_generate(result)) : warn(errors.join("\n"))
+  exit 1
+end
+
+case command
+when "validate"
+  result = { "status" => "ok", "skills" => catalog.skills.length, "errors" => [] }
+
+  if json
+    puts JSON.pretty_generate(result)
+  else
+    puts "Validated #{catalog.skills.length} custom skills; manifest and README links OK."
+  end
+when "inventory", "status", "plan"
+  inventory = AgentSkills::Inventory.new(
+    catalog,
+    "agents" => options.fetch("agents_root"),
+    "codex" => options.fetch("codex_root")
+  )
+
+  result = case command
+  when "inventory"
+    {
+      "status" => "ok",
+      "roots" => inventory.roots,
+      "repository" => inventory.repository,
+      "installed" => inventory.statuses,
+      "warnings" => inventory.warnings
+    }
+  when "status"
+    summary = inventory.summary
+    healthy = summary.fetch("missing").zero? && summary.fetch("drifted").zero? && summary.fetch("duplicates").zero?
+    {
+      "status" => healthy ? "ok" : "drift",
+      "summary" => summary,
+      "skills" => inventory.statuses,
+      "warnings" => inventory.warnings
+    }
+  when "plan"
+    {
+      "status" => "ok",
+      "actions" => inventory.plan,
+      "warnings" => inventory.warnings
+    }
+  end
+
+  if json
+    puts JSON.pretty_generate(result)
+  elsif command == "inventory"
+    result.fetch("installed").each do |skill|
+      puts "#{skill.fetch('state')} #{skill.fetch('target')}:#{skill.fetch('name')} -> #{skill.fetch('destination')}"
+    end
+    result.fetch("warnings").each do |warning|
+      puts "warning #{warning.fetch('kind')} #{warning.fetch('target')}:#{warning.fetch('name')}"
+    end
+    puts "inventory: #{inventory.summary.map { |key, value| "#{key}=#{value}" }.join(' ')}"
+  elsif command == "plan"
+    result.fetch("actions").each do |action|
+      puts "#{action.fetch('action')} #{action.fetch('target')}:#{action.fetch('name')} -> #{action.fetch('destination')}"
+    end
+    result.fetch("warnings").each do |warning|
+      puts "warning #{warning.fetch('kind')} #{warning.fetch('target')}:#{warning.fetch('name')}"
+    end
+  else
+    puts "#{command}: #{inventory.summary.map { |key, value| "#{key}=#{value}" }.join(' ')}"
+  end
+
+  exit 1 if command == "status" && result.fetch("status") != "ok"
+else
+  warn "Usage: scripts/skills <inventory|validate|status|plan> [--format text|json] [--agents-root PATH] [--codex-root PATH]"
+  exit 2
+end

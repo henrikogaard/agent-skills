@@ -1,0 +1,7 @@
+interface:
+  display_name: "Verification Matrix"
+  short_description: "Choose targeted tests and QA checks"
+  default_prompt: "Use $verification-matrix to choose and report verification based on what changed."
+
+policy:
+  allow_implicit_invocation: true

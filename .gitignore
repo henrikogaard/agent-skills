@@ -1,0 +1,62 @@
+# macOS
+.DS_Store
+
+# Editor and local workspace state
+.idea/
+.vscode/
+.agent-worktrees/
+/.agents/
+/.codex/
+*.swp
+*.swo
+
+# Credentials and machine-local configuration
+.env
+.env.*
+!.env.example
+!.env.*.example
+.openai/
+.npmrc
+.pypirc
+.netrc
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
+*.mobileprovision
+*.credentials.json
+*.private.json
+
+# Logs and temporary files
+*.log
+*.tmp
+*.temp
+tmp/
+temp/
+
+# Python validation/runtime caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+
+# Node/tooling caches, if helper scripts are added later
+node_modules/
+.npm/
+.pnpm-store/
+
+# Generated archives and packaged skill bundles
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+
+# Local-only notes and exports
+*.local.*
+local/
+exports/

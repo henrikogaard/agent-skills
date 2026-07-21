@@ -1,0 +1,7 @@
+interface:
+  display_name: "Needs Analysis"
+  short_description: "Clarify goals, users, constraints, unknowns, and first slice before specs or code"
+  default_prompt: "Use $needs-analysis to analyze an early or vague request, identify the real need, constraints, risks, unknowns, and recommend the smallest useful next step."
+
+policy:
+  allow_implicit_invocation: true

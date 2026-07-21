@@ -1,0 +1,7 @@
+interface:
+  display_name: "GitHub Project Hygiene"
+  short_description: "Reconcile issues, labels, comments, and project-board status"
+  default_prompt: "Use $github-project-hygiene to check or update GitHub issue and project-board status accurately."
+
+policy:
+  allow_implicit_invocation: true

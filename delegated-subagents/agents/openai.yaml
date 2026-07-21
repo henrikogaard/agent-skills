@@ -1,0 +1,7 @@
+interface:
+  display_name: "Delegated Subagents"
+  short_description: "Manual-only external polish with final Codex review"
+  default_prompt: "I manually invoke $delegated-subagents for bounded work. Use external OpenCode, Devin, Cursor, or Mistral workers for implementation and polish; require a complete diff-hashed Codex review before recommending acceptance."
+
+policy:
+  allow_implicit_invocation: false

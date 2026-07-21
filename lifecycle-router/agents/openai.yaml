@@ -1,0 +1,7 @@
+interface:
+  display_name: "Lifecycle Router"
+  short_description: "Route work through the right analysis, requirements, design, implementation, review, and handoff phase"
+  default_prompt: "Use $lifecycle-router when a request may need analysis, requirements, design, implementation, verification, review, docs, or handoff, and choose the smallest useful lifecycle path."
+
+policy:
+  allow_implicit_invocation: true

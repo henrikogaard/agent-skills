@@ -1,0 +1,7 @@
+interface:
+  display_name: "Skill Maintainer"
+  short_description: "Audit, document, validate, and sync personal skills"
+  default_prompt: "Use $skill-maintainer to maintain the personal agent-skills repository and installed skill copies."
+
+policy:
+  allow_implicit_invocation: true

@@ -1,0 +1,7 @@
+interface:
+  display_name: "Change Surface Map"
+  short_description: "Map affected files and system surfaces"
+  default_prompt: "Use $change-surface-map to identify affected files, APIs, data paths, tests, docs, and hidden coupling before coding."
+
+policy:
+  allow_implicit_invocation: true

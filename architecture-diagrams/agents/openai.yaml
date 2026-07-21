@@ -1,0 +1,7 @@
+interface:
+  display_name: "Architecture Diagrams"
+  short_description: "Create and maintain Mermaid conceptual, logical, and low-level architecture diagrams"
+  default_prompt: "Use $architecture-diagrams to create or update Mermaid architecture diagrams in README.md, architecture docs, ADRs, or design docs."
+
+policy:
+  allow_implicit_invocation: true

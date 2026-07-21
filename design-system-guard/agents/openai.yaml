@@ -1,0 +1,7 @@
+interface:
+  display_name: "Design System Guard"
+  short_description: "Review UI changes for tokens, i18n, responsiveness, and design consistency"
+  default_prompt: "Use $design-system-guard for UI, design-system, theme, i18n, or responsive layout changes."
+
+policy:
+  allow_implicit_invocation: true

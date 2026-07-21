@@ -1,0 +1,7 @@
+interface:
+  display_name: "Release Surface Guard"
+  short_description: "Prevent accidental version, changelog, and release-surface drift"
+  default_prompt: "Use $release-surface-guard before changing versions, changelogs, release notes, tags, or deploy metadata."
+
+policy:
+  allow_implicit_invocation: true
